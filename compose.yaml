@@ -1,0 +1,71 @@
+services:
+  db:
+    image: postgis/postgis:18-3.6
+    platform: linux/amd64
+    environment:
+      POSTGRES_DB: offpeak
+      POSTGRES_USER: offpeak
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U offpeak -d offpeak"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      - "127.0.0.1:5433:5432"
+    mem_limit: 512m
+
+  # One-shot: brings the schema to head, then exits. Safe to re-run on every `up`.
+  migrate:
+    build: ./backend
+    env_file: backend/.env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://offpeak:${POSTGRES_PASSWORD}@db:5432/offpeak
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  # Manual, not part of `up`: docker compose --profile seed run --rm seed
+  # Seeds are idempotent but upsert over existing rows, so run them only on a fresh DB.
+  seed:
+    image: postgis/postgis:18-3.6
+    platform: linux/amd64
+    profiles: ["seed"]
+    environment:
+      PGHOST: db
+      PGUSER: offpeak
+      PGDATABASE: offpeak
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./backend/db:/seed:ro
+    working_dir: /seed
+    entrypoint: ["sh", "-c"]
+    command:
+      - >-
+        for f in 03_dml_seed_poi_table.sql 04_dml_seed_busyness_forecast.sql
+        05_insert_poi_availability_mode.sql 06_dml_update_poi_best_time.sql
+        07_dml_update_poi_content.sql;
+        do echo "== $$f"; psql -v ON_ERROR_STOP=1 -q -f "$$f" || exit 1; done
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  api:
+    build: ./backend
+    env_file: backend/.env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://offpeak:${POSTGRES_PASSWORD}@db:5432/offpeak
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:8000:8000"
+    mem_limit: 512m
+
+volumes:
+  pgdata:

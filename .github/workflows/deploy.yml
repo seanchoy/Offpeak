@@ -1,98 +1,58 @@
 name: Deploy
 
-# Runs after CI succeeds on production, so a broken build/lint never
-# reaches migrations or the hosting platforms. `main` is the team's
-# integration branch; pushing to `production` is a deliberate release
-# step (see git-workflow.md).
 on:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
-    branches: [production]
+    branches: [main]
 
-# id-token: write lets the job mint an OIDC token for keyless Workload
-# Identity Federation into GCP (no long-lived service-account key in secrets).
-# contents: read is the default checkout scope, restated because setting any
-# permissions block drops all the others to none.
 permissions:
   contents: read
-  id-token: write
+  packages: write
+
+
+concurrency: 
+  group: deploy
+  cancel-in-progress: false
 
 jobs:
-  migrate-and-deploy:
-    if: github.event.workflow_run.conclusion == 'success'
+  deploy:
+    if: >- 
+      github.event.workflow_run.conclusion == 'success' && 
+      github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
+    env:
+        IMAGE: ghcr.io/seanchoy/offpeak-api
+        TAG: ${{ github.event.workflow_run.head_sha }}
     steps:
+    # git clone
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-
-      - name: Run database migrations
-        working-directory: backend
+          ref: ${{ env.TAG }}
+    # docker login git
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+    # docker build and push
+      - uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ env.TAG }}
+            ${{ env.IMAGE }}:latest
+      
+    # run commands
+      - name: Deploy to droplet
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          # alembic/env.py imports app.core.config, which instantiates Settings() at
-          # import time and so validates every field. Migrations never sign a token
-          # or call Gemini, but the import fails without these. Locally they come from
-          # the gitignored backend/.env, which no CI checkout has.
-          JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          AI_PROVIDER: ${{ secrets.AI_PROVIDER }}
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
         run: |
-          pip install -r requirements.txt
-          alembic upgrade head
-
-      # Keyless auth into GCP via Workload Identity Federation. The provider is
-      # locked to this repo, so only workflows here can assume the deployer SA;
-      # no service-account JSON key is ever stored in GitHub secrets.
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: projects/365018172965/locations/global/workloadIdentityPools/github-pool/providers/github-provider
-          service_account: github-deployer@offpeak-498815.iam.gserviceaccount.com
-
-      - uses: google-github-actions/setup-gcloud@v2
-
-      - name: Deploy backend to Cloud Run
-        # --source builds the backend Dockerfile via Cloud Build and deploys it.
-        # Env vars and secrets set on the service (DATABASE_URL, JWT, GEMINI, GROQ,
-        # AI_PROVIDER, ALLOWED_ORIGINS) persist across --source deploys, so they are
-        # not repeated here. Region/service must match the existing service.
-        run: |
-          gcloud run deploy manhattan-api \
-            --source backend \
-            --region us-west1 \
-            --project offpeak-498815 \
-            --quiet
-
-      - uses: actions/setup-node@v4
-        with:
-          # Matches the Vercel project's nodeVersion (24.x). `vercel build` runs here,
-          # not on Vercel, so this Node is what actually builds production. Also clears
-          # vite@8's engine floor (^20.19.0 || >=22.12.0).
-          node-version: "24"
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Deploy frontend to Vercel
-        # Runs from the repo root on purpose. The Vercel project sets Root Directory
-        # to "frontend" and the CLI resolves it against the working directory, so
-        # running this from frontend/ resolves frontend/frontend. That does not error:
-        # the build falls back to @vercel/static, emits no static/ output, and still
-        # exits 0 -- publishing an empty site. Keep this at the root.
-        #
-        # Git integration is intentionally disconnected (no per-dev Vercel access
-        # required, no Vercel checks blocking PRs to main). This token-based deploy
-        # is the only deploy path, so it must carry the org/project IDs itself
-        # since there is no committed frontend/.vercel link to resolve them.
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-        run: |
-          npx vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
-          npx vercel build --prod --token="$VERCEL_TOKEN"
-          npx vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+          mkdir -p -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh deploy@"$HOST" "cd /srv/offpeak && export API_TAG=$TAG && docker compose pull api migrate && docker compose up -d"

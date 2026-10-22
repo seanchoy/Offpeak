@@ -22,7 +22,8 @@ jobs:
       github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     env:
-        IMAGE: ghcr.io/seanchoy/offpeak-api
+        API_IMAGE: ghcr.io/seanchoy/offpeak-api
+        WEB_IMAGE: ghcr.io/seanchoy/offpeak-web
         TAG: ${{ github.event.workflow_run.head_sha }}
     steps:
     # git clone
@@ -35,14 +36,23 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-    # docker build and push
+    # docker build and push - backend
       - uses: docker/build-push-action@v6
         with:
           context: backend
           push: true
           tags: |
-            ${{ env.IMAGE }}:${{ env.TAG }}
-            ${{ env.IMAGE }}:latest
+            ${{ env.API_IMAGE }}:${{ env.TAG }}
+            ${{ env.API_IMAGE }}:latest
+      
+      # docker build and push - frontend
+      - uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          push: true
+          tags: |
+            ${{ env.WEB_IMAGE }}:${{ env.TAG }}
+            ${{ env.WEB_IMAGE }}:latest
       
     # run commands
       - name: Deploy to droplet
@@ -55,4 +65,4 @@ jobs:
           printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
-          ssh deploy@"$HOST" "cd /srv/offpeak && export API_TAG=$TAG && docker compose pull api migrate && docker compose up -d"
+          ssh deploy@"$HOST" "cd /srv/offpeak && export API_TAG=$TAG WEB_TAG=$TAG && docker compose pull api migrate web && docker compose up -d"

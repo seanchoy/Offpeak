@@ -3,3 +3,10 @@ __pycache__/
 .env
 .venv/
 venv/
+tests/
+benchmarks/
+.ruff_cache/
+.pytest_cache/
+.git
+.DS_Store
+db/

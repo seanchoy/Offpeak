@@ -1,0 +1,11 @@
+# listen to port 80 in the container 
+
+
+:80 {
+	root * /srv
+	# zip the file and send 
+	encode zstd gzip
+	# return index.html if path is not found
+	try_files {path} /index.html
+	file_server
+}

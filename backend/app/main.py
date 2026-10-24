@@ -1,9 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 
 from app.core.config import settings
 from app.core.query_counter import register_query_counter
 from app.routers import ai, auth, health, itinerary, pois, users
+
 
 # instantiate app
 app = FastAPI()
@@ -18,6 +20,15 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+# Holds OAuth state/nonce between /google/login and /google/callback only.
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.JWT_SECRET_KEY,
+    max_age=600,
+    same_site="lax",
+    https_only=True,
 )
 
 # include routers

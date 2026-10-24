@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: str = "http://localhost:5173"
     # config flag for query counter
     ENABLE_QUERY_COUNTER: bool = False
+    # Optional for the same reason as above; the Google login routes return 503 when unset.
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
 
     @property
     def allowed_origins_list(self) -> list[str]:

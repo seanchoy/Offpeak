@@ -11,6 +11,8 @@ from app.services.session_service import (
 from app.services.user_services import get_user_by_email, get_user_by_google_sub, create_user_by_google
 from app.models.user_model import UserIdentity
 
+from sqlalchemy.exc import IntegrityError
+
 INVALID_CREDENTIALS="Incorrect email or password. Please try again."
 INVALID_TOKEN="Invalid or expired refresh token."
 UNVERIFIED_EMAIL="Email is not verified. Please try again."
@@ -38,6 +40,9 @@ def authenticate_user(email: str, password: str, db: Session):
     existing_user = get_user_by_email(email, db)
 
     if existing_user is None:
+        raise AuthenticationError(INVALID_CREDENTIALS)
+
+    if existing_user.password_hash is None:
         raise AuthenticationError(INVALID_CREDENTIALS)
 
     password_verified, hash_update = verify_password(
@@ -119,12 +124,20 @@ def login_with_google(userinfo: dict, db: Session) -> dict:
         google_email = userinfo["email"].lower().strip()
         local_user = get_user_by_email(google_email, db)
         if local_user is None:
-            is_new_user = True
             name = userinfo.get("name")
             name = name.strip() if name else name 
             display_name = name if name else google_email.split("@")[0]
             display_name = display_name[:50]
-            user = create_user_by_google(google_email, display_name, google_sub, db)
+            try:
+                is_new_user = True
+                user = create_user_by_google(google_email, display_name, google_sub, db)
+            except IntegrityError:
+                db.rollback()
+                user = get_user_by_google_sub(google_sub, db)
+                is_new_user = False
+                if user is None:
+                    raise 
+
         else:
             local_user.identities.append(UserIdentity(provider="google", provider_user_id=userinfo["sub"]))
             db.commit()

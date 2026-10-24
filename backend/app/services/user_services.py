@@ -43,7 +43,6 @@ def create_user(user: UserCreate, db: Session):
     """
     
     existing_user = get_user_by_email(user.email, db)
-
     if existing_user:
         raise UserAlreadyExists(
             "This email is already registered. Please log in or use a different email."

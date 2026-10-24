@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import UserAlreadyExists
 from app.core.security.passwords import hash_password
-from app.models.user_model import User
+from app.models.user_model import User, UserIdentity
 from app.schemas.user import UserCreate
 
 
@@ -19,6 +19,12 @@ def get_user_by_email(email: str, db: Session):
     normalised_email = email.lower().strip()
     result = db.execute(select(User).where(User.email == normalised_email))
     return result.scalar_one_or_none()
+
+def get_user_by_google_sub(google_sub: str, db: Session):
+    result = db.execute(select(UserIdentity).where(UserIdentity.provider == "google", UserIdentity.provider_user_id == google_sub))
+    identity = result.scalar_one_or_none()
+    return identity.user if identity is not None else None
+
 
 def get_user_by_id(user_id, db: Session):
     """Retrieve a user by their unique identifier."""
@@ -55,3 +61,13 @@ def create_user(user: UserCreate, db: Session):
     db.refresh(new_user)
 
     return new_user
+
+def create_user_by_google(email, name, sub, db):
+    user = User(email=email, 
+                display_name=name, 
+                password_hash=None, 
+                accessibility=False)
+    user.identities.append(UserIdentity(provider="google", provider_user_id=sub))
+    db.add(user)
+    db.commit()
+    return user

@@ -15,15 +15,13 @@ from app.schemas.auth import (
     UserLogin,
     WebLoginResponse,
     WebRefreshResponse,
-    MeResponse
 )
 from app.schemas.user import UserCreate, UserResponse
 from app.services.auth_service import authenticate_user, refresh_session, login_with_google
 from app.services.session_service import revoke_session
-from app.services.user_services import create_user, get_user_by_id
+from app.services.user_services import create_user
 from app.core.config import settings
 from app.core.security.oauth import oauth
-from app.dependencies.auth import authorise_access
 
 GOOGLE_FAILED_REDIRECT = "/?auth_error=google_failed"
 GOOGLE_UNVERIFIED_REDIRECT = "/?auth_error=google_unverified"
@@ -207,18 +205,3 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
     _set_auth_cookies(redirect_response, login_response)
 
     return redirect_response
-    
-@router.get("/me", response_model=MeResponse)
-def get_me(user_id: str = Depends(authorise_access), db: Session = Depends(get_db)):
-    user = get_user_by_id(user_id, db)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Please log in again."
-        )
-
-    return MeResponse(
-        email=user.email,
-        display_name=user.display_name,
-        accessibility=user.accessibility,
-    )

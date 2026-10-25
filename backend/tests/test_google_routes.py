@@ -1,4 +1,4 @@
-"""Tests for the Google OIDC routes and GET /api/auth/me.
+"""Tests for the Google OIDC routes and GET /api/users/me.
 
 Google is never contacted: the tests pre-load Authlib's server metadata and
 replace authorize_access_token with a stub. Like test_google_login.py they need
@@ -273,7 +273,7 @@ class TestPart4Me:
         user = make_google_user(db, email="sean@example.com")
         token = create_access_token(user.id)
 
-        response = client.get("/api/auth/me", headers={"Cookie": f"access_token={token}"})
+        response = client.get("/api/users/me", headers={"Cookie": f"access_token={token}"})
 
         assert response.status_code == 200
         assert response.json() == {
@@ -288,12 +288,12 @@ class TestPart4Me:
         user = make_google_user(db)
         token = create_access_token(user.id)
 
-        response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+        response = client.get("/api/users/me", headers={"Authorization": f"Bearer {token}"})
 
         assert response.status_code == 200
 
     def test_requires_a_token(self, client):
-        response = client.get("/api/auth/me")
+        response = client.get("/api/users/me")
 
         assert response.status_code == 401
 
@@ -304,6 +304,6 @@ class TestPart4Me:
 
         token = create_access_token(uuid.uuid4())
 
-        response = client.get("/api/auth/me", headers={"Cookie": f"access_token={token}"})
+        response = client.get("/api/users/me", headers={"Cookie": f"access_token={token}"})
 
         assert response.status_code == 401

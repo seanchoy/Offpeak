@@ -1,7 +1,12 @@
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
+from authlib.integrations.starlette_client import OAuthError
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.exceptions import AuthenticationError, UserAlreadyExists
+from app.core.security.oauth import oauth
 from app.database import get_db
 from app.schemas.auth import (
     LogoutRequest,
@@ -14,9 +19,16 @@ from app.schemas.auth import (
     WebRefreshResponse,
 )
 from app.schemas.user import UserCreate, UserResponse
-from app.services.auth_service import authenticate_user, refresh_session
+from app.services.auth_service import (
+    authenticate_user,
+    login_with_google,
+    refresh_session,
+)
 from app.services.session_service import revoke_session
 from app.services.user_services import create_user
+
+GOOGLE_FAILED_REDIRECT = "/?auth_error=google_failed"
+GOOGLE_UNVERIFIED_REDIRECT = "/?auth_error=google_unverified"
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -37,21 +49,7 @@ def login_for_web(data: UserLogin, db: Session = Depends(get_db), response: Resp
     try:
         login_response = authenticate_user(data.email, data.password, db)
 
-        response.set_cookie(
-            key="access_token",
-            value=login_response["access_token"],
-            httponly=True,
-            secure=True,
-            samesite="lax"
-        )
-
-        response.set_cookie(
-            key="refresh_token",
-            value=login_response["refresh_token"],
-            httponly=True,
-            secure=True,
-            samesite="lax"
-        )
+        _set_auth_cookies(response, login_response)
 
         return WebLoginResponse(
             message="Login successful",
@@ -96,21 +94,7 @@ def refresh_session_for_web(response: Response, refresh_token: str | None = Cook
 
         tokens = refresh_session(refresh_token, db)
 
-        response.set_cookie(
-            key="access_token",
-            value=tokens["access_token"],
-            httponly=True,
-            secure=True,
-            samesite="lax"
-        )
-
-        response.set_cookie(
-            key="refresh_token",
-            value=tokens["refresh_token"],
-            httponly=True,
-            secure=True,
-            samesite="lax"
-        )
+        _set_auth_cookies(response, tokens)
 
         return WebRefreshResponse(
             message="Session refreshed successfully."
@@ -176,4 +160,52 @@ def logout_for_mobile(request: LogoutRequest, db: Session = Depends(get_db)):
             detail=str(e)
         )
 
+def _require_google():
+    if not settings.GOOGLE_CLIENT_ID:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Google login is not configured.",
+        )
 
+@router.get("/google/login")
+async def google_login(request: Request):
+    _require_google()
+    redirect_uri = request.url_for("google_callback")
+    return await oauth.google.authorize_redirect(request, redirect_uri)
+
+
+def _set_auth_cookies(response: Response, tokens: dict):
+    response.set_cookie(
+        key="access_token",
+        value=tokens["access_token"],
+        httponly=True,
+        secure=True,
+        samesite="lax"
+        )
+        
+    response.set_cookie(
+        key="refresh_token",
+        value=tokens["refresh_token"],
+        httponly=True,
+        secure=True,
+        samesite="lax"
+        )
+    
+@router.get("/google/callback")
+async def google_callback(request: Request, db: Session = Depends(get_db)):
+    _require_google()
+    try:
+        token = await oauth.google.authorize_access_token(request)   
+    except OAuthError:
+        return RedirectResponse(GOOGLE_FAILED_REDIRECT, status_code=status.HTTP_302_FOUND)
+    userinfo = token["userinfo"]
+    try:
+        login_response = await run_in_threadpool(login_with_google, userinfo, db)
+    except AuthenticationError:
+        return RedirectResponse(GOOGLE_UNVERIFIED_REDIRECT, status_code=status.HTTP_302_FOUND)
+    
+    target = "/welcome" if login_response["is_new_user"] else "/"
+    redirect_response = RedirectResponse(target, status_code=status.HTTP_302_FOUND)
+    _set_auth_cookies(redirect_response, login_response)
+
+    return redirect_response

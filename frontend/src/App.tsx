@@ -8,18 +8,27 @@ import AttractionCard from "./components/AttractionCard";
 import AuthForm from "./components/AuthForm";
 import BusynessChart from "./components/BusynessChart";
 import CategoryTabs from "./components/CategoryTabs";
+import GoogleMapsCredit from "./components/GoogleMapsCredit";
 import ItineraryDetail from "./components/ItineraryDetail";
 import MyItinerary from "./components/MyItinerary";
+import PhotoCredit from "./components/PhotoCredit";
 import Profile from "./components/Profile";
 import SavedItineraries from "./components/SavedItineraries";
 import SearchBar from "./components/SearchBar";
 import TopNav from "./components/TopNav";
+import WelcomePage from "./components/WelcomePage";
 import poiPhotoFallback from "./assets/poi-photo-fallback.svg";
 
 import {
   apiFetch,
   AUTHENTICATION_REQUIRED_EVENT,
 } from "./api";
+
+import { getAuthErrorMessage } from "./auth/authError";
+import { EMAIL_SIGNUP_ENABLED } from "./features";
+import { fetchPhotoAttribution, isGooglePlacesPhoto } from "./poiPhoto";
+import type { PhotoAttribution } from "./poiPhoto";
+import { fetchCurrentUser } from "./auth/currentUser";
 
 import {
   confirmedAccessibilityLabels,
@@ -42,7 +51,8 @@ type Page =
   | "ai"
   | "itinerary"
   | "saved"
-  | "profile";
+  | "profile"
+  | "welcome";
 
 const PAGE_PATHS: Record<Page, string> = {
   explore: "/explore",
@@ -50,9 +60,10 @@ const PAGE_PATHS: Record<Page, string> = {
   itinerary: "/itinerary",
   saved: "/saved",
   profile: "/profile",
+  welcome: "/welcome",
 };
 
-const PROTECTED_PAGES: Page[] = ["itinerary", "saved", "profile"];
+const PROTECTED_PAGES: Page[] = ["itinerary", "saved", "profile", "welcome"];
 
 function normalisePath(pathname: string): string {
   return pathname.length > 1
@@ -81,6 +92,10 @@ function getPageFromPath(pathname: string): Page {
 
   if (path === "/profile") {
     return "profile";
+  }
+
+  if (path === "/welcome") {
+    return "welcome";
   }
 
   return "explore";
@@ -163,6 +178,11 @@ function loadStoredUser(): AuthUser | null {
     localStorage.removeItem(USER_STORAGE_KEY);
     return null;
   }
+}
+
+/* Remembers the signed-in user's display information on this device. */
+function saveStoredUser(user: AuthUser): void {
+  localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
 }
 
 /*
@@ -421,8 +441,22 @@ function App() {
     Backend requests still depend on the HttpOnly authentication cookie.
   */
   const [user, setUser] = useState<AuthUser | null>(loadStoredUser);
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  /*
+    A failed Google sign-in comes back as /?auth_error=<code>. The message is
+    read once on first render, before the redirect below drops the query, and
+    the login modal starts open to show it.
+  */
+  const [authError, setAuthError] = useState<string | null>(() =>
+    getAuthErrorMessage(window.location.search)
+  );
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(authError !== null);
   const [authMode, setAuthMode] = useState<AuthMode>("login");
+  /*
+    False until the backend has said who the cookie belongs to. Protected pages
+    wait for it, so /welcome does not flash "please log in" straight after a
+    Google redirect.
+  */
+  const [hasCheckedSession, setHasCheckedSession] = useState(false);
   const [profilePreferences, setProfilePreferences] =
     useState<ProfilePreferences>(() => loadProfilePreferences(user));
 
@@ -445,6 +479,10 @@ function App() {
   const [forecastError, setForecastError] = useState("");
   const [forecastPeriod, setForecastPeriod] =
     useState<ForecastPeriod>("today");
+  const [photoAttribution, setPhotoAttribution] = useState<{
+    slug: string;
+    attribution: PhotoAttribution;
+  } | null>(null);
   const selectedPoiSlug = selectedPoi?.slug;
   const selectedPoiIsClosedToday = selectedPoi
     ? isPoiClosedToday(selectedPoi)
@@ -472,6 +510,17 @@ function App() {
       navigate(PAGE_PATHS.explore, { replace: true });
     }
   }, [location.pathname, navigate]);
+
+  /* Drop a Google error from the URL so a refresh does not show it again. */
+  useEffect(() => {
+    if (!authError) {
+      return;
+    }
+
+    const url = new URL(window.location.href);
+    url.searchParams.delete("auth_error");
+    window.history.replaceState(window.history.state, "", url);
+  }, [authError]);
 
   /*
     Card forecasts are loaded lazily and cached by slug. Duplicate cards in
@@ -625,6 +674,38 @@ function App() {
     };
   }, [selectedPoiSlug]);
 
+  /*
+    Credit the photographer of a Google Places hero photo (required by the
+    Google Maps Platform terms). Keyed by slug so a slow response for the
+    previous attraction can never be shown under the next one.
+  */
+  const selectedPoiUsesGooglePhoto = selectedPoi
+    ? isGooglePlacesPhoto(selectedPoi.hero_image_url, selectedPoi.slug)
+    : false;
+
+  useEffect(() => {
+    if (!selectedPoiSlug || !selectedPoiUsesGooglePhoto) {
+      return;
+    }
+
+    let isCancelled = false;
+
+    void fetchPhotoAttribution(selectedPoiSlug).then((attribution) => {
+      if (!isCancelled && attribution) {
+        setPhotoAttribution({ slug: selectedPoiSlug, attribution });
+      }
+    });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [selectedPoiSlug, selectedPoiUsesGooglePhoto]);
+
+  const selectedPhotoAttribution =
+    photoAttribution && photoAttribution.slug === selectedPoiSlug
+      ? photoAttribution.attribution
+      : null;
+
   /* Clear local display state after the backend session ends. */
   const handleLocalLogout = useCallback(() => {
     localStorage.removeItem(USER_STORAGE_KEY);
@@ -664,6 +745,49 @@ function App() {
       );
     };
   }, [handleLocalLogout, navigate]);
+
+  /*
+    On first load, ask the backend who is signed in. This is how a Google
+    sign-in reaches the app (it arrives as a redirect, not a JSON response),
+    and it also clears a stale localStorage entry once the cookies expire.
+  */
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function checkSession() {
+      try {
+        const currentUser = await fetchCurrentUser();
+
+        if (isCancelled) {
+          return;
+        }
+
+        if (currentUser) {
+          saveStoredUser(currentUser);
+          setUser(currentUser);
+          setProfilePreferences(loadProfilePreferences(currentUser));
+        } else {
+          handleLocalLogout();
+        }
+      } catch (error) {
+        /*
+          A server or network problem says nothing about the session, so the
+          stored display state is kept.
+        */
+        console.info("The session could not be checked:", error);
+      } finally {
+        if (!isCancelled) {
+          setHasCheckedSession(true);
+        }
+      }
+    }
+
+    void checkSession();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [handleLocalLogout]);
 
   /*
     I update the shared saved-place state when a place is removed from the
@@ -860,6 +984,7 @@ function App() {
 
   function closeAuthModal() {
     setIsAuthModalOpen(false);
+    setAuthError(null);
   }
 
   function switchToLogin() {
@@ -872,7 +997,26 @@ function App() {
       loadProfilePreferences(authenticatedUser)
     );
     setIsAuthModalOpen(false);
+    setAuthError(null);
     setSavePoiMessage("");
+  }
+
+  /*
+    After the welcome page the saved (or unchanged) details become the
+    signed-in user, and the accessibility choice becomes this account's
+    step-free preference.
+  */
+  function handleWelcomeDone(updatedUser: AuthUser) {
+    const preferences = { stepFreeRoutes: updatedUser.accessibility };
+
+    saveStoredUser(updatedUser);
+    setUser(updatedUser);
+    setProfilePreferences(preferences);
+    localStorage.setItem(
+      getProfilePreferencesKey(updatedUser),
+      JSON.stringify(preferences)
+    );
+    navigate(PAGE_PATHS.explore, { replace: true });
   }
 
   function updateProfilePreferences(preferences: ProfilePreferences) {
@@ -1081,12 +1225,12 @@ function App() {
         onPageChange={goToPage}
         user={user}
         onLoginClick={openLogin}
-        onRegisterClick={openRegister}
+        onRegisterClick={EMAIL_SIGNUP_ENABLED ? openRegister : undefined}
         onLogoutClick={handleLogout}
       />
 
       <main className="page-container">
-        {isProtectedPage && !user && (
+        {isProtectedPage && !user && hasCheckedSession && (
           <section className="route-login-card" aria-labelledby="login-required-title">
             <p className="section-eyebrow">Account required</p>
             <h1 id="login-required-title">Please log in to continue</h1>
@@ -1130,12 +1274,14 @@ function App() {
                       Log in
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={openRegister}
-                    >
-                      Create account
-                    </button>
+                    {EMAIL_SIGNUP_ENABLED && (
+                      <button
+                        type="button"
+                        onClick={openRegister}
+                      >
+                        Create account
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -1246,6 +1392,8 @@ function App() {
                         renderAttractionCard
                       )}
                     </section>
+
+                    <GoogleMapsCredit />
                   </section>
                 )}
 
@@ -1272,11 +1420,15 @@ function App() {
                       search and filters.
                     </p>
                   ) : (
-                    <section className="cards">
-                      {filteredPois.map(
-                        renderAttractionCard
-                      )}
-                    </section>
+                    <>
+                      <section className="cards">
+                        {filteredPois.map(
+                          renderAttractionCard
+                        )}
+                      </section>
+
+                      <GoogleMapsCredit />
+                    </>
                   )}
                 </section>
               )}
@@ -1335,23 +1487,29 @@ function App() {
 
               <section className="poi-detail-layout">
                 <div className="poi-detail-main">
-                  <img
-                    className="poi-detail-hero"
-                    src={
-                      selectedPoi.hero_image_url ||
-                      poiPhotoFallback
-                    }
-                    alt={selectedPoi.name}
-                    onError={(event) => {
-                      if (
-                        !event.currentTarget.src.endsWith(
-                          "poi-photo-fallback.svg"
-                        )
-                      ) {
-                        event.currentTarget.src = poiPhotoFallback;
+                  <figure className="poi-detail-hero-figure">
+                    <img
+                      className="poi-detail-hero"
+                      src={
+                        selectedPoi.hero_image_url ||
+                        poiPhotoFallback
                       }
-                    }}
-                  />
+                      alt={selectedPoi.name}
+                      onError={(event) => {
+                        if (
+                          !event.currentTarget.src.endsWith(
+                            "poi-photo-fallback.svg"
+                          )
+                        ) {
+                          event.currentTarget.src = poiPhotoFallback;
+                        }
+                      }}
+                    />
+
+                    {selectedPhotoAttribution && (
+                      <PhotoCredit attribution={selectedPhotoAttribution} />
+                    )}
+                  </figure>
 
                   <p className="section-eyebrow">
                     {selectedPoi.type}
@@ -1673,6 +1831,10 @@ function App() {
           />
         )}
 
+        {currentPage === "welcome" && user && (
+          <WelcomePage user={user} onDone={handleWelcomeDone} />
+        )}
+
         {currentPage === "profile" && user && (
           <Profile
             user={user}
@@ -1716,6 +1878,7 @@ function App() {
             onRegisterClick={openRegister}
             onLoginClick={switchToLogin}
             onAuthSuccess={handleAuthenticationSuccess}
+            initialError={authError ?? undefined}
           />
         </div>
       )}

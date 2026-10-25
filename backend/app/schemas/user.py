@@ -48,3 +48,30 @@ class UserCreate(UserBase):
 class UserResponse(UserBase):
     model_config = {"from_attributes": True}
 
+class MeResponse(BaseModel):
+    email: str
+    display_name: str
+    accessibility: bool
+
+class UpdateMeRequest(BaseModel):
+    display_name: str
+    accessibility: bool
+
+    @field_validator("display_name")
+    @classmethod
+    def clean_display_name(cls, value):
+        value = value.strip()
+
+        if not value:
+            raise PydanticCustomError(
+                "empty_display_name",
+                "Display name cannot be blank."
+            )
+
+        if len(value) > 50:
+            raise PydanticCustomError(
+                "display_name_too_long",
+                "Display name must be at most 50 characters."
+            )
+
+        return value

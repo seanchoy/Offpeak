@@ -5,6 +5,18 @@ type BusynessChartProps = {
   poiName: string;
 };
 
+type BusynessBand = "quiet" | "moderate" | "busy";
+
+const BAND_LABELS: Record<BusynessBand, string> = {
+  quiet: "Quiet",
+  moderate: "Moderate",
+  busy: "Busy",
+};
+
+// Upper edge of each band, also drawn as reference lines across the plot.
+const QUIET_MAX = 35;
+const MODERATE_MAX = 65;
+
 function formatHour(hour: number): string {
   const normalisedHour = ((hour % 24) + 24) % 24;
 
@@ -21,66 +33,150 @@ function formatHour(hour: number): string {
     : `${normalisedHour - 12}pm`;
 }
 
-function getBusynessBand(busyness: number): "quiet" | "moderate" | "busy" {
-  if (busyness <= 35) {
+function getBusynessBand(busyness: number): BusynessBand {
+  if (busyness <= QUIET_MAX) {
     return "quiet";
   }
 
-  if (busyness <= 65) {
+  if (busyness <= MODERATE_MAX) {
     return "moderate";
   }
 
   return "busy";
 }
 
+function clampPercent(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+/*
+  A single-series column chart: height carries the crowd level, colour repeats
+  it as a band, and only the quietest and busiest slots get a value label so
+  the answer to "when should I go?" stands out. Every value is still available
+  on hover/focus and in the screen-reader table.
+*/
 function BusynessChart({ hours, poiName }: BusynessChartProps) {
-  const visibleHours = hours.slice(0, 24);
+  const visibleHours = hours.slice(0, 24).map((hour) => ({
+    ...hour,
+    busyness: clampPercent(hour.busyness),
+  }));
+
+  if (visibleHours.length === 0) {
+    return null;
+  }
+
+  const quietest = visibleHours.reduce((best, hour) =>
+    hour.busyness < best.busyness ? hour : best
+  );
+  const busiest = visibleHours.reduce((worst, hour) =>
+    hour.busyness > worst.busyness ? hour : worst
+  );
+  const isDense = visibleHours.length > 12;
 
   return (
-    <figure
-      className="busyness-forecast"
-      aria-label={`Hourly crowd forecast for ${poiName}`}
-    >
+    <figure className="busyness-forecast">
       <div className="busyness-chart-heading">
-        <figcaption>Hourly crowd forecast</figcaption>
-        <span>Lower bars are quieter</span>
+        <figcaption>
+          <span className="busyness-chart-title">Crowd forecast</span>
+          <span className="busyness-chart-summary">
+            Quietest at <strong>{formatHour(quietest.hour_of_day)}</strong>
+            {quietest.hour_of_day !== busiest.hour_of_day && (
+              <>
+                {" · "}busiest at{" "}
+                <strong>{formatHour(busiest.hour_of_day)}</strong>
+              </>
+            )}
+          </span>
+        </figcaption>
+
+        <ul className="busyness-chart-legend" aria-label="Crowd levels">
+          {(Object.keys(BAND_LABELS) as BusynessBand[]).map((band) => (
+            <li key={band}>
+              <i className={band} aria-hidden="true" />
+              {BAND_LABELS[band]}
+            </li>
+          ))}
+        </ul>
       </div>
 
-      <div className="busyness-chart-legend" aria-label="Crowd level legend">
-        <span><i className="quiet" /> Quiet 0–35%</span>
-        <span><i className="moderate" /> Moderate 36–65%</span>
-        <span><i className="busy" /> Busy 66–100%</span>
-      </div>
-
-      <div className="mini-busyness-chart">
-        {visibleHours.map((hour, index) => {
-          const showTimeLabel =
-            visibleHours.length <= 12 ||
-            index % 3 === 0 ||
-            index === visibleHours.length - 1;
-
-          return (
-            <div
-              key={hour.hour_of_day}
-              className="mini-busyness-column"
-              title={`${formatHour(hour.hour_of_day)} — ${hour.busyness}% busy`}
+      <div className="mini-busyness-chart" aria-hidden="true">
+        <div className="busyness-plot">
+          {[MODERATE_MAX, QUIET_MAX].map((edge) => (
+            <span
+              key={edge}
+              className="busyness-threshold"
+              style={{ bottom: `${edge}%` }}
             >
-              <div className="mini-busyness-bar-area">
-                <div
-                  className={`mini-busyness-bar ${getBusynessBand(hour.busyness)}`}
-                  style={{
-                    height: `${Math.max(6, Math.min(hour.busyness, 100))}%`,
-                  }}
-                />
-              </div>
+              <small>{edge}%</small>
+            </span>
+          ))}
 
-              <span className="busyness-hour-label">
-                {showTimeLabel ? formatHour(hour.hour_of_day) : ""}
+          {visibleHours.map((hour) => {
+            const band = getBusynessBand(hour.busyness);
+            const isHighlighted = hour === quietest || hour === busiest;
+
+            return (
+              <div
+                key={hour.hour_of_day}
+                className={`mini-busyness-column ${band}`}
+              >
+                {isHighlighted && !isDense && (
+                  <span
+                    className="busyness-value"
+                    style={{ bottom: `${hour.busyness}%` }}
+                  >
+                    {hour.busyness}%
+                  </span>
+                )}
+
+                <span
+                  className="mini-busyness-bar"
+                  style={{ height: `max(3px, ${hour.busyness}%)` }}
+                >
+                  {/* Anchored to the bar so it opens just above the cap. */}
+                  <span className="busyness-tooltip">
+                    <strong>{hour.busyness}%</strong>
+                    {formatHour(hour.hour_of_day)} · {BAND_LABELS[band]}
+                  </span>
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="busyness-axis">
+          {visibleHours.map((hour, index) => {
+            const showLabel =
+              !isDense || index % 3 === 0 || index === visibleHours.length - 1;
+
+            return (
+              <span key={hour.hour_of_day}>
+                {showLabel ? formatHour(hour.hour_of_day) : ""}
               </span>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
+
+      <table className="sr-only">
+        <caption>Crowd forecast for {poiName}</caption>
+        <thead>
+          <tr>
+            <th scope="col">Time</th>
+            <th scope="col">Expected crowd</th>
+          </tr>
+        </thead>
+        <tbody>
+          {visibleHours.map((hour) => (
+            <tr key={hour.hour_of_day}>
+              <th scope="row">{formatHour(hour.hour_of_day)}</th>
+              <td>
+                {hour.busyness}% ({BAND_LABELS[getBusynessBand(hour.busyness)]})
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </figure>
   );
 }

@@ -249,6 +249,12 @@ class POIPhotoCache(Base):
 
     photo_uri: Mapped[str] = mapped_column(Text, nullable=False)
 
+    author_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    author_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    google_maps_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

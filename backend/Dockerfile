@@ -13,4 +13,6 @@ COPY . .
 RUN useradd --create-home --uid 10001 app
 USER app
 
+ENV FORWARDED_ALLOW_IPS="*"
+
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

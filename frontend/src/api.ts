@@ -251,9 +251,19 @@ async function readResponseBody(
     body: JSON.stringify({ email, password }),
   });
 */
+type ApiFetchSettings = {
+  /*
+    Skip the app-wide "please log in" event when a request still fails with
+    401. The startup session check uses this: for a logged-out visitor a 401
+    is the expected answer, not a reason to open the login modal.
+  */
+  quietAuthFailure?: boolean;
+};
+
 export async function apiFetch<T>(
   url: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  settings: ApiFetchSettings = {}
 ): Promise<T> {
   const headers = new Headers(options.headers);
 
@@ -319,11 +329,27 @@ export async function apiFetch<T>(
   const data = await readResponseBody(response);
 
   if (!response.ok) {
-    if (response.status === 401 && !isWebAuthRequest(url)) {
+    if (
+      response.status === 401 &&
+      !isWebAuthRequest(url) &&
+      !settings.quietAuthFailure
+    ) {
       notifyAuthenticationRequired();
     }
 
-    throw new ApiError(getErrorMessage(data, response.status), {
+    /*
+      On the auth endpoints a 401 means the credentials were wrong, not that a
+      session expired, and the backend's message is written for the user
+      ("Incorrect email or password..."), so it is shown as it is.
+    */
+    const message =
+      response.status === 401 &&
+      isWebAuthRequest(url) &&
+      typeof data?.detail === "string"
+        ? data.detail
+        : getErrorMessage(data, response.status);
+
+    throw new ApiError(message, {
       kind: "http",
       status: response.status,
     });

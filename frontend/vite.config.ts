@@ -8,7 +8,12 @@ export default defineConfig({
     // Mirrors the /api rewrite used in production (see vercel.json) so the
     // frontend can always call relative /api/* paths in both environments.
     proxy: {
-      '/api': 'http://localhost:8000',
+      '/api': {
+        target: 'http://localhost:8000',
+        // Keep the browser's Host (localhost:5173) so the backend builds the
+        // Google OAuth redirect_uri for the address the user is actually on.
+        changeOrigin: false,
+      },
     },
   },
 })

@@ -7,7 +7,7 @@ from alembic import context
 
 from app.core.config import settings
 from app.database import Base
-from app.models.user_model import User, UserSession
+from app.models.user_model import User, UserSession, UserIdentity
 from app.models.poi_model import POI, SavedPOI, POIBusynessForecast, POIPhotoCache
 from app.models.itinerary_model import SavedItinerary, ItineraryStop
 from app.models.ai_model import Conversation, Message, Trip, TripExcludedPOI

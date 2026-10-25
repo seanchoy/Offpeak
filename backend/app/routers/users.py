@@ -10,7 +10,9 @@ from app.repositories.itinerary_repository import (
 )
 from app.schemas.itinerary import ItinerarySavedResponse, ItinerarySummaryResponse
 from app.schemas.poi import POIDetailedResponse
+from app.schemas.user import MeResponse, UpdateMeRequest
 from app.services.poi_service import get_saved_pois, serialise_poi
+from app.services.user_services import get_user_by_id
 
 router = APIRouter(prefix="/api/users/me", tags=["users"])
 
@@ -33,3 +35,40 @@ def display_saved_itinerary(itinerary_id, db: Session = Depends(get_db), user=De
             detail="Itinerary not found."
         )
 
+
+def _get_current_user(user_id: str, db: Session):
+    user = get_user_by_id(user_id, db)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Please log in again."
+        )
+
+    return user
+
+@router.get("", response_model=MeResponse)
+def get_me(user_id: str = Depends(authorise_access), db: Session = Depends(get_db)):
+    user = _get_current_user(user_id, db)
+    return MeResponse(
+        email=user.email,
+        display_name=user.display_name,
+        accessibility=user.accessibility,
+    )
+
+@router.patch("", response_model=MeResponse)
+def update_me(
+    body: UpdateMeRequest,
+    user_id: str = Depends(authorise_access),
+    db: Session = Depends(get_db)):
+
+    user = _get_current_user(user_id, db)
+    user.display_name = body.display_name
+    user.accessibility = body.accessibility
+    db.commit()
+
+    return MeResponse(
+        email=user.email,
+        display_name=user.display_name,
+        accessibility=user.accessibility,
+    )
+    

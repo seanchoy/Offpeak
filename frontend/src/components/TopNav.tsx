@@ -151,13 +151,15 @@ function TopNav({
                 Log in
               </button>
 
-              <button
-                type="button"
-                className="top-nav-register"
-                onClick={onRegisterClick}
-              >
-                Register
-              </button>
+              {onRegisterClick && (
+                <button
+                  type="button"
+                  className="top-nav-register"
+                  onClick={onRegisterClick}
+                >
+                  Register
+                </button>
+              )}
             </div>
           )}
         </div>

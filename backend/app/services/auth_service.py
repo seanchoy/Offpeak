@@ -156,4 +156,3 @@ def login_with_google(userinfo: dict, db: Session) -> dict:
         "accessibility" : user.accessibility,
         "is_new_user" : is_new_user,
     }
-

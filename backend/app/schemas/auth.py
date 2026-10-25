@@ -33,3 +33,8 @@ class LogoutRequest(BaseModel):
 
 class LogoutResponse(BaseModel):
     message: str
+
+class MeResponse(BaseModel):
+    email: str
+    display_name: str
+    accessibility: bool

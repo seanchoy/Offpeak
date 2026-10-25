@@ -30,7 +30,7 @@ Offpeak solves this by combining a curated Points-of-Interest (POI) database for
   <em>Native iOS interface — Explore, AI Planner, and POI detail</em>
 </p>
 
-🌏 Website: https://offpeak.live/
+🌏 Website: https://offpeak.seancai.dev/
 
 ---
 

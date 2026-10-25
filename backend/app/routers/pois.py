@@ -11,7 +11,7 @@ from app.schemas.poi import (
     POISaveResponse,
     POIUnsaveResponse,
 )
-from app.services.photo_service import get_photo_url
+from app.services.photo_service import get_photo_url, get_photo_attribution
 from app.services.poi_service import (
     attach_current_busyness,
     get_all_pois,
@@ -60,6 +60,22 @@ def get_poi_photo(slug: str, db: Session = Depends(get_db)):
         status_code=status.HTTP_307_TEMPORARY_REDIRECT,
         headers={"Cache-Control": "public, max-age=21600"},
     )
+
+@router.get("/{slug}/photo/attribution")
+def get_poi_photo_attribution(slug: str, db: Session = Depends(get_db)):
+    poi = get_poi_by_slug(slug, db)
+    if poi is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Attraction not found."
+        )
+    photo_attribution = get_photo_attribution(poi.google_place_id, db)
+    if photo_attribution is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No photo available."
+        )
+    return photo_attribution
 
 @router.get("/{slug}", response_model=POIDetailedResponse)
 def get_poi(slug: str, db: Session = Depends(get_db)):

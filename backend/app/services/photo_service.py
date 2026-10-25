@@ -66,29 +66,66 @@ def get_photo_url(place_id: str | None, db: Session) -> str | None:
     fresh = _resolve(place_id)
     if fresh:
         _store(db, place_id, fresh)
-        return fresh
+        return fresh["photo_uri"]
 
     # Stale-if-error: Google failed but we have an old row. A possibly-expired URL
     # is still a better bet than a guaranteed placeholder, and the client falls
     # back on its own if the image 404s.
     return cached.photo_uri if cached else None
 
+def get_photo_attribution(place_id: str | None, db: Session) -> dict | None:
 
-def _store(db: Session, place_id: str, photo_uri: str) -> None:
+    if not place_id or not settings.GOOGLE_PLACES_API_KEY:
+        return None
+
+    cached = db.get(POIPhotoCache, place_id)
+    if cached and cached.fetched_at > datetime.now(UTC) - _CACHE_TTL and cached.author_name is not None:
+        return {
+            "author_name": cached.author_name,
+            "author_uri": cached.author_uri,
+            "google_maps_uri": cached.google_maps_uri
+        }
+
+    fresh = _resolve(place_id)
+    if fresh:
+        _store(db, place_id, fresh)
+        return {
+            "author_name": fresh["author_name"],
+            "author_uri": fresh["author_uri"],
+            "google_maps_uri": fresh["google_maps_uri"]
+        }
+
+    return {
+            "author_name": cached.author_name,
+            "author_uri": cached.author_uri,
+            "google_maps_uri": cached.google_maps_uri
+        } if cached else None
+    
+
+def _store(db: Session, place_id: str, photo_details: dict) -> None:
     now = datetime.now(UTC)
     # Upsert: concurrent misses for the same place_id must not collide on the PK.
     statement = insert(POIPhotoCache).values(
-        place_id=place_id, photo_uri=photo_uri, fetched_at=now
+        place_id=place_id, 
+        photo_uri=photo_details["photo_uri"], 
+        author_name = photo_details["author_name"],
+        author_uri = photo_details["author_uri"],
+        google_maps_uri = photo_details["google_maps_uri"],
+        fetched_at=now
     )
     statement = statement.on_conflict_do_update(
         index_elements=[POIPhotoCache.place_id],
-        set_={"photo_uri": photo_uri, "fetched_at": now},
+        set_={"photo_uri":photo_details["photo_uri"], 
+              "author_name":photo_details["author_name"], 
+              "author_uri":photo_details["author_uri"],
+              "google_maps_uri":photo_details["google_maps_uri"],
+              "fetched_at":now}
     )
     db.execute(statement)
     db.commit()
 
 
-def _resolve(place_id: str) -> str | None:
+def _resolve(place_id: str) -> dict | None:
     headers = {"X-Goog-Api-Key": settings.GOOGLE_PLACES_API_KEY}
     try:
         with httpx.Client(timeout=_TIMEOUT_S) as client:
@@ -101,12 +138,25 @@ def _resolve(place_id: str) -> str | None:
             if not photos:
                 return None
 
+            author = (photos[0].get("authorAttributions") or [{}])[0]
+            author_name = author.get("displayName")
+            author_uri = author.get("uri")
+            google_maps_uri = photos[0].get("googleMapsUri") or None
             media = client.get(
                 f"{_PLACES_BASE}/{photos[0]['name']}/media",
                 headers=headers,
                 params={"maxWidthPx": _MAX_WIDTH_PX, "skipHttpRedirect": "true"},
             )
             media.raise_for_status()
-            return media.json().get("photoUri")
+            return {
+                "photo_uri": media.json().get("photoUri"),
+                "author_name": author_name,
+                "author_uri": author_uri,
+                "google_maps_uri": google_maps_uri
+            }
+                
+                
+                
     except (httpx.HTTPError, KeyError, ValueError):
         return None
+

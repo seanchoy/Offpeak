@@ -66,8 +66,9 @@
   --warning-border: #e3d2a8;
   --warning-text: #6f5522;
 
-  --crowd-quiet: #647b56;
-  --crowd-moderate: #b7954f;
+  /* Validated together for colour-vision safety (dataviz validate_palette). */
+  --crowd-quiet: #0f8a78;
+  --crowd-moderate: #b8862b;
   --crowd-busy: #a83c32;
   --crowd-pending: #72797e;
 
@@ -966,11 +967,15 @@ a {
   min-width: 0;
 }
 
+.poi-detail-hero-figure {
+  position: relative;
+  margin: 0 0 34px;
+}
+
 .poi-detail-hero {
   display: block;
   width: 100%;
   height: 430px;
-  margin-bottom: 34px;
 
   border-radius: var(--radius-md);
   object-fit: cover;
@@ -1420,6 +1425,103 @@ a {
 
 .auth-switch-button:hover {
   text-decoration: underline;
+}
+
+/*
+  Google Maps Platform attribution. The photo credit sits on the hero photo
+  it describes; the "Google Maps" line follows the cards whose ratings and
+  thumbnails come from Places.
+*/
+.photo-credit {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  max-width: calc(100% - 24px);
+
+  padding: 5px 10px;
+  border-radius: var(--radius-pill);
+  background: rgba(8, 43, 61, 0.72);
+  color: var(--text-light);
+
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.photo-credit a {
+  color: inherit;
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.google-maps-credit {
+  margin: 14px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: right;
+}
+
+/* Google sign-in sits above the email form as the quicker option. */
+.google-signin-button {
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 18px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-white);
+  color: var(--color-navy);
+
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.google-signin-button:hover {
+  border-color: var(--color-navy);
+}
+
+.google-signin-hint {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.auth-divider {
+  margin: 18px 0;
+
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* The welcome page reuses the auth card, centred in the page. */
+.welcome-page {
+  padding: 64px 16px 80px;
+  display: flex;
+  justify-content: center;
+}
+
+.welcome-skip-button {
+  align-self: center;
 }
 /* =========================================================
    OFFPEAK WEB FRONTEND
@@ -2560,103 +2662,205 @@ a {
 }
 
 .busyness-forecast {
-  margin-top: 18px;
-  padding: 14px;
+  --busyness-plot-height: 132px;
+
+  /* <figure> has a 40px side margin by default; keep the card on the grid. */
+  margin: 18px 0 0;
+  padding: 24px 28px 18px;
 
   border: 1px solid var(--border-soft);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: var(--bg-white);
 }
 
 .busyness-chart-heading {
   display: flex;
-  align-items: baseline;
+  flex-wrap: wrap;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 14px;
+  gap: 10px 20px;
 }
 
 .busyness-chart-heading figcaption {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.busyness-chart-title {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.busyness-chart-summary {
+  color: var(--text-main);
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.busyness-chart-summary strong {
   color: var(--color-navy);
-  font-size: 13px;
   font-weight: 900;
 }
 
-.busyness-chart-heading > span {
-  color: var(--text-muted);
-  font-size: 10px;
-}
-
 .busyness-chart-legend {
-  margin-top: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 14px;
+  gap: 6px 14px;
 }
 
-.busyness-chart-legend span {
+.busyness-chart-legend li {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   color: var(--text-muted);
-  font-size: 9px;
-  font-weight: 750;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .busyness-chart-legend i {
-  width: 9px;
-  height: 9px;
+  width: 10px;
+  height: 10px;
   border-radius: 3px;
 }
 
 .busyness-chart-legend i.quiet,
-.mini-busyness-bar.quiet { background: #5f8b76; }
+.mini-busyness-column.quiet .mini-busyness-bar { background: var(--crowd-quiet); }
 
 .busyness-chart-legend i.moderate,
-.mini-busyness-bar.moderate { background: var(--color-gold); }
+.mini-busyness-column.moderate .mini-busyness-bar { background: var(--crowd-moderate); }
 
 .busyness-chart-legend i.busy,
-.mini-busyness-bar.busy { background: var(--color-brick); }
+.mini-busyness-column.busy .mini-busyness-bar { background: var(--crowd-busy); }
 
 .mini-busyness-chart {
-  min-height: 112px;
-  margin-top: 12px;
-  padding-top: 8px;
+  margin-top: 18px;
+  /* Room on the right for the reference-line labels. */
+  padding-right: 34px;
+}
+
+.busyness-plot {
+  position: relative;
+  height: var(--busyness-plot-height);
 
   display: flex;
-  align-items: stretch;
-  gap: 4px;
+  align-items: flex-end;
 
-  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Band edges: hairline reference lines, recessive, labelled at the right. */
+.busyness-threshold {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
   border-top: 1px solid var(--border-soft);
+  pointer-events: none;
+}
+
+.busyness-threshold small {
+  position: absolute;
+  right: -34px;
+  top: -7px;
+  width: 30px;
+
+  color: var(--text-muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 14px;
+  text-align: right;
 }
 
 .mini-busyness-column {
-  flex: 1;
-  min-width: 24px;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  gap: 5px;
-}
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
 
-.mini-busyness-bar-area {
-  height: 78px;
   display: flex;
   align-items: flex-end;
-  border-bottom: 1px solid #d9d5ce;
+  justify-content: center;
 }
 
 .mini-busyness-bar {
-  width: 100%;
-  min-height: 5px;
-  border-radius: 3px 3px 0 0;
+  position: relative;
+  width: min(24px, 64%);
+  border-radius: 4px 4px 0 0;
+  transition: filter 120ms ease;
 }
 
-.busyness-hour-label {
-  min-height: 13px;
+.mini-busyness-column:hover .mini-busyness-bar {
+  filter: brightness(1.12);
+}
+
+/* Only the quietest and busiest slots carry a value on the cap. */
+.busyness-value {
+  position: absolute;
+  left: 0;
+  right: 0;
+  margin-bottom: 4px;
+
+  color: var(--text-main);
+  font-size: 11px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 14px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.busyness-tooltip {
+  position: absolute;
+  bottom: calc(100% + 22px);
+  left: 50%;
+  z-index: 2;
+
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 6px 9px;
+
+  border-radius: 8px;
+  background: var(--color-navy);
+  color: var(--text-light);
+  box-shadow: 0 6px 18px rgba(8, 43, 61, 0.18);
+
+  font-size: 11px;
+  line-height: 15px;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.busyness-tooltip strong {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mini-busyness-column:hover .busyness-tooltip {
+  display: flex;
+}
+
+.busyness-axis {
+  margin-top: 6px;
+  display: flex;
+}
+
+.busyness-axis span {
+  flex: 1 1 0;
+  min-width: 0;
   color: var(--text-muted);
-  font-size: 8px;
-  line-height: 12px;
+  font-size: 11px;
+  line-height: 15px;
   text-align: center;
   white-space: nowrap;
 }
@@ -5472,10 +5676,12 @@ input[type="search"]::-webkit-search-cancel-button {
   box-shadow: none;
 }
 
+.itinerary-detail .busyness-forecast {
+  --busyness-plot-height: 80px;
+}
+
 .itinerary-detail .mini-busyness-chart {
-  min-height: 34px;
-  margin-top: 6px;
-  padding-top: 4px;
+  margin-top: 10px;
 }
 
 .itinerary-detail .busyness-forecast {
@@ -5868,8 +6074,8 @@ input[type="search"]::-webkit-search-cancel-button {
   box-shadow: none;
 }
 
-.saved-itinerary-plan .mini-busyness-chart {
-  min-height: 76px;
+.saved-itinerary-plan .busyness-forecast {
+  --busyness-plot-height: 96px;
 }
 
 .saved-itinerary-editor {

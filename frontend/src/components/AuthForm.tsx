@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 
 import { apiFetch } from "../api";
+import { EMAIL_SIGNUP_ENABLED } from "../features";
 import type { AuthMode, AuthResponse, AuthUser } from "../types";
 
 type AuthFormProps = {
@@ -10,6 +11,8 @@ type AuthFormProps = {
   onRegisterClick: () => void;
   authMode: AuthMode;
   onAuthSuccess?: (user: AuthUser) => void;
+  // An error to show when the form opens, e.g. after a failed Google sign-in.
+  initialError?: string;
 };
 
 /*
@@ -65,6 +68,7 @@ function AuthForm({
   onLoginClick,
   authMode,
   onAuthSuccess,
+  initialError,
 }: AuthFormProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -75,8 +79,8 @@ function AuthForm({
   const [accessibility, setAccessibility] = useState(false);
 
   // Message shown inside the authentication modal.
-  const [authMessage, setAuthMessage] = useState("");
-  const [isError, setIsError] = useState(false);
+  const [authMessage, setAuthMessage] = useState(initialError ?? "");
+  const [isError, setIsError] = useState(Boolean(initialError));
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isLogin = authMode === "login";
@@ -291,6 +295,26 @@ function AuthForm({
           : "Create an account to save places and keep your itineraries together."}
       </p>
 
+      {/*
+        A plain link, not fetch: the backend answers with a redirect to Google,
+        and only a full page navigation lets the browser follow it.
+      */}
+      <a className="google-signin-button" href="/api/auth/google/login">
+        Continue with Google
+      </a>
+
+      {/*
+        Always shown, whatever was typed, so the login form never reveals
+        which emails belong to Google-only accounts.
+      */}
+      <p className="google-signin-hint">
+        Signed up with Google? Use the button above instead of a password.
+      </p>
+
+      <p className="auth-divider">
+        <span>or use your email</span>
+      </p>
+
       <form onSubmit={isLogin ? handleLogin : handleRegister}>
         {!isLogin && (
           <label>
@@ -397,18 +421,24 @@ function AuthForm({
         </button>
       </form>
 
-      <p className="signup-link">
-        {isLogin ? "New to Offpeak? " : "Already have an account? "}
+      {isLogin && !EMAIL_SIGNUP_ENABLED ? (
+        <p className="signup-link">
+          New to Offpeak? Continue with Google to create your account.
+        </p>
+      ) : (
+        <p className="signup-link">
+          {isLogin ? "New to Offpeak? " : "Already have an account? "}
 
-        <button
-          type="button"
-          className="auth-switch-button"
-          onClick={isLogin ? switchToRegister : switchToLogin}
-          disabled={isSubmitting}
-        >
-          {isLogin ? "Create an account" : "Log in"}
-        </button>
-      </p>
+          <button
+            type="button"
+            className="auth-switch-button"
+            onClick={isLogin ? switchToRegister : switchToLogin}
+            disabled={isSubmitting}
+          >
+            {isLogin ? "Create an account" : "Log in"}
+          </button>
+        </p>
+      )}
     </section>
   );
 }

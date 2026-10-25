@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" />
   <img src="https://img.shields.io/badge/status-live-brightgreen.svg" alt="Status: Live" />
   <img src="https://img.shields.io/badge/COMP47360-Research%20Project-blue.svg" alt="COMP47360 Research Project" />
-  <a href="https://offpeak.live/"><img src="https://img.shields.io/badge/website-offpeak.live-orange.svg" alt="Website" /></a>
+  <a href="https://offpeak.seancai.dev/"><img src="https://img.shields.io/badge/website-offpeak.live-orange.svg" alt="Website" /></a>
 </p>
 
 ## 🌟 Project Overview

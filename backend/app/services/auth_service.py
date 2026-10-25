@@ -1,17 +1,20 @@
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import AuthenticationError
 from app.core.security.passwords import verify_password, verify_token
 from app.core.security.tokens import create_access_token, decode_token
+from app.models.user_model import UserIdentity
 from app.services.session_service import (
     create_session,
     get_session_by_sid,
     rotate_session,
 )
-from app.services.user_services import get_user_by_email, get_user_by_google_sub, create_user_by_google
-from app.models.user_model import UserIdentity
-
-from sqlalchemy.exc import IntegrityError
+from app.services.user_services import (
+    create_user_by_google,
+    get_user_by_email,
+    get_user_by_google_sub,
+)
 
 INVALID_CREDENTIALS="Incorrect email or password. Please try again."
 INVALID_TOKEN="Invalid or expired refresh token."

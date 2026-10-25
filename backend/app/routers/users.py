@@ -2,18 +2,17 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ItineraryNotFound
-from app.dependencies.auth import authorise_access
 from app.database import get_db
+from app.dependencies.auth import authorise_access
 from app.repositories.itinerary_repository import (
     get_saved_itineraries,
     get_saved_itinerary,
 )
 from app.schemas.itinerary import ItinerarySavedResponse, ItinerarySummaryResponse
 from app.schemas.poi import POIDetailedResponse
+from app.schemas.user import MeResponse, UpdateMeRequest
 from app.services.poi_service import get_saved_pois, serialise_poi
 from app.services.user_services import get_user_by_id
-from app.schemas.user import MeResponse, UpdateMeRequest
-
 
 router = APIRouter(prefix="/api/users/me", tags=["users"])
 

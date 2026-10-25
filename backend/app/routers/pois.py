@@ -11,7 +11,7 @@ from app.schemas.poi import (
     POISaveResponse,
     POIUnsaveResponse,
 )
-from app.services.photo_service import get_photo_url, get_photo_attribution
+from app.services.photo_service import get_photo_attribution, get_photo_url
 from app.services.poi_service import (
     attach_current_busyness,
     get_all_pois,

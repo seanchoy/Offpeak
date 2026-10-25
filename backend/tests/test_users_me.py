@@ -20,8 +20,8 @@ ME = "/api/users/me"
 
 @pytest.fixture(scope="module")
 def engine():
-    import app.models.ai_model  # noqa: F401
-    import app.models.itinerary_model  # noqa: F401
+    import app.models.ai_model
+    import app.models.itinerary_model
     import app.models.poi_model  # noqa: F401
     from app.database import Base
     from app.models.user_model import User, UserIdentity, UserSession

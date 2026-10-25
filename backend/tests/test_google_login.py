@@ -20,8 +20,8 @@ pytestmark = pytest.mark.skipif(
 @pytest.fixture(scope="module")
 def engine():
     # Register every mapped class so User's relationships can be resolved.
-    import app.models.ai_model  # noqa: F401
-    import app.models.itinerary_model  # noqa: F401
+    import app.models.ai_model
+    import app.models.itinerary_model
     import app.models.poi_model  # noqa: F401
     from app.database import Base
     from app.models.user_model import User, UserIdentity, UserSession

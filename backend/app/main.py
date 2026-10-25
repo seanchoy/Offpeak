@@ -6,7 +6,6 @@ from app.core.config import settings
 from app.core.query_counter import register_query_counter
 from app.routers import ai, auth, health, itinerary, pois, users
 
-
 # instantiate app
 app = FastAPI()
 

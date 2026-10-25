@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status, Request
+from authlib.integrations.starlette_client import OAuthError
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
-from authlib.integrations.starlette_client import OAuthError
 
+from app.core.config import settings
 from app.core.exceptions import AuthenticationError, UserAlreadyExists
+from app.core.security.oauth import oauth
 from app.database import get_db
 from app.schemas.auth import (
     LogoutRequest,
@@ -17,11 +19,13 @@ from app.schemas.auth import (
     WebRefreshResponse,
 )
 from app.schemas.user import UserCreate, UserResponse
-from app.services.auth_service import authenticate_user, refresh_session, login_with_google
+from app.services.auth_service import (
+    authenticate_user,
+    login_with_google,
+    refresh_session,
+)
 from app.services.session_service import revoke_session
 from app.services.user_services import create_user
-from app.core.config import settings
-from app.core.security.oauth import oauth
 
 GOOGLE_FAILED_REDIRECT = "/?auth_error=google_failed"
 GOOGLE_UNVERIFIED_REDIRECT = "/?auth_error=google_unverified"

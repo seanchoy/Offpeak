@@ -277,3 +277,52 @@ class TestPart4Security:
             login(info, db)
 
         assert users(db) == 0
+
+
+class TestPart4bConcurrentFirstLogin:
+    def test_recovers_when_another_request_created_the_user_first(
+        self, db, login, monkeypatch
+    ):
+        """Two tabs race on a first login: both lookups miss, then the INSERT
+        hits the unique constraints because the other request committed first.
+        Simulated by making each lookup miss once while the row already exists.
+        """
+        from app.core.security.tokens import decode_token
+        from app.services import auth_service
+
+        winner = make_google_user(db, email="new@example.com")
+
+        for name in ("get_user_by_google_sub", "get_user_by_email"):
+            real = getattr(auth_service, name)
+            calls = []
+
+            def miss_once(*args, _real=real, _calls=calls):
+                _calls.append(args)
+                return None if len(_calls) == 1 else _real(*args)
+
+            monkeypatch.setattr(auth_service, name, miss_once)
+
+        result = login(claims(), db)
+
+        assert decode_token(result["access_token"])["sub"] == str(winner.id)
+        assert users(db) == 1
+        assert identities(db) == 1
+
+
+# ---------------------------------------------------------------- Part 5
+
+
+class TestPart5PasswordLoginForGoogleOnlyUser:
+    def test_rejects_password_login_without_a_password(self, db):
+        from app.core.exceptions import AuthenticationError
+        from app.services.auth_service import INVALID_CREDENTIALS, authenticate_user
+
+        make_google_user(db, email="sean@example.com")
+
+        with pytest.raises(AuthenticationError) as excinfo:
+            authenticate_user("sean@example.com", "any-password", db)
+
+        # Same message as a wrong password, so the response doesn't reveal
+        # that the email is registered.
+        assert str(excinfo.value) == INVALID_CREDENTIALS
+        assert sessions(db) == 0

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { ApiError, apiFetch } from "../api";
 import { groupStopsByDay } from "../itinerary";
@@ -11,15 +11,51 @@ import type {
   SavedItinerary,
 } from "../types";
 import BusynessChart from "./BusynessChart";
+import "./AiPlanner.css";
 
 const PROMPT_SUGGESTIONS = [
-  "Plan a low-crowd day with museums and architecture.",
-  "Plan an accessible weekend with parks and viewpoints.",
-  "Plan a relaxed local day with markets and neighbourhood walks.",
+  {
+    title: "Art & architecture",
+    detail: "Museums, landmarks, fewer crowds",
+    icon: "museum",
+    prompt: "Plan a low-crowd day with museums and architecture.",
+  },
+  {
+    title: "Room to explore",
+    detail: "Accessible parks & city views",
+    icon: "leaf",
+    prompt: "Plan an accessible weekend with parks and viewpoints.",
+  },
+  {
+    title: "A slower kind of day",
+    detail: "Local markets & neighbourhood walks",
+    icon: "coffee",
+    prompt: "Plan a relaxed local day with markets and neighbourhood walks.",
+  },
 ];
 
 const OPENING_MESSAGE =
-  "Hi! I'm your trip planner. Tell me about your preferred dates, travel pace, interests, or anything you'd like to avoid.";
+  "Hi! Let's find your kind of Manhattan. What would you love to do? Share your dates, interests or preferred pace, and we'll take it from there.";
+
+function PlannerIcon({ name }: { name: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      {name === "museum" ? (
+        <><path d="m3 9 9-5 9 5H3ZM5 11v7m5-7v7m4-7v7m5-7v7M3 21h18" /></>
+      ) : name === "leaf" ? (
+        <><path d="M20 4c-9-1-16 3-15 10 1 7 9 7 12 2 2-3 3-7 3-12ZM4 21l10-11" /></>
+      ) : name === "coffee" ? (
+        <><path d="M4 9h13v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V9Zm13 1h2a3 3 0 0 1 0 6h-2M7 3v2m5-2v2M3 23h16" /></>
+      ) : name === "pin" ? (
+        <><path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 1 1 14 0Z" /><circle cx="12" cy="10" r="2.5" /></>
+      ) : name === "reset" ? (
+        <><path d="M3 10a9 9 0 1 1 2 8M3 4v6h6" /></>
+      ) : (
+        <><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5L12 3Z" /></>
+      )}
+    </svg>
+  );
+}
 
 const AI_QUOTA_ERROR =
   "You've reached today's AI usage limit. Please try again later.";
@@ -125,6 +161,99 @@ function AIPlanner({
   const itineraryResultRef = useRef<HTMLElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const chatHistoryRef = useRef<HTMLDivElement | null>(null);
+  const chatStageRef = useRef<HTMLDivElement | null>(null);
+
+  // As the introduction scrolls away, grow the chat upwards while keeping
+  // the composer at the same distance from the bottom of the viewport.
+  useLayoutEffect(() => {
+    const stage = chatStageRef.current;
+    if (!stage) return;
+
+    let frame = 0;
+    const updateChatSize = () => {
+      const nav = document.querySelector<HTMLElement>(".top-nav");
+      const navHeight = nav && getComputedStyle(nav).position === "sticky"
+        ? nav.getBoundingClientRect().height
+        : 0;
+      const topLimit = navHeight + 20;
+      const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+      const availableHeight = Math.max(0, viewportHeight - topLimit - 24);
+      const top = Math.max(topLimit, stage.getBoundingClientRect().top);
+      // A small initial card remains usable on short screens; once the intro
+      // clears, the card expands to the available viewport height.
+      const height = Math.max(Math.min(320, availableHeight), viewportHeight - top - 24);
+
+      stage.style.setProperty("--planner-chat-top", `${topLimit}px`);
+      stage.style.setProperty("--planner-chat-height", `${height}px`);
+    };
+    const scheduleUpdate = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(updateChatSize);
+    };
+
+    updateChatSize();
+    window.addEventListener("scroll", scheduleUpdate, { passive: true });
+    window.addEventListener("resize", scheduleUpdate);
+    window.visualViewport?.addEventListener("resize", scheduleUpdate);
+    const observer = typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(scheduleUpdate)
+      : null;
+    if (stage.parentElement) observer?.observe(stage.parentElement);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", scheduleUpdate);
+      window.removeEventListener("resize", scheduleUpdate);
+      window.visualViewport?.removeEventListener("resize", scheduleUpdate);
+      observer?.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
+    const stage = chatStageRef.current;
+    const history = chatHistoryRef.current;
+    if (!stage || !history) return;
+
+    // Downward gestures expand the outer panel first, even when the pointer
+    // is over its scrollable conversation. Only the remainder scrolls chat.
+    const expandBeforeScrollingChat = (distance: number) => {
+      const topLimit = parseFloat(getComputedStyle(stage).getPropertyValue("--planner-chat-top")) || 20;
+      const remaining = Math.max(0, stage.getBoundingClientRect().top - topLimit);
+      if (distance <= 0 || remaining < 1) return false;
+
+      const pageDistance = Math.min(distance, remaining);
+      window.scrollBy({ top: pageDistance, behavior: "instant" });
+      if (distance > pageDistance) history.scrollTop += distance - pageDistance;
+      return true;
+    };
+
+    const onWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.shiftKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? window.innerHeight : 1;
+      if (expandBeforeScrollingChat(event.deltaY * unit)) event.preventDefault();
+    };
+
+    let touchY: number | null = null;
+    const onTouchStart = (event: TouchEvent) => {
+      touchY = event.touches.length === 1 ? event.touches[0].clientY : null;
+    };
+    const onTouchMove = (event: TouchEvent) => {
+      if (touchY === null || event.touches.length !== 1) return;
+      const nextY = event.touches[0].clientY;
+      const distance = touchY - nextY;
+      touchY = nextY;
+      if (expandBeforeScrollingChat(distance) && event.cancelable) event.preventDefault();
+    };
+
+    history.addEventListener("wheel", onWheel, { passive: false });
+    history.addEventListener("touchstart", onTouchStart, { passive: true });
+    history.addEventListener("touchmove", onTouchMove, { passive: false });
+    return () => {
+      history.removeEventListener("wheel", onWheel);
+      history.removeEventListener("touchstart", onTouchStart);
+      history.removeEventListener("touchmove", onTouchMove);
+    };
+  }, []);
 
   const itineraryDays = useMemo(
     () => (itinerary ? groupStopsByDay(itinerary.stops) : []),
@@ -180,7 +309,7 @@ function AIPlanner({
 
     // Wait for the new bubble to be laid out, so scrollHeight includes it.
     const animationFrame = window.requestAnimationFrame(() => {
-      const newest = history.lastElementChild;
+      const newest = history.querySelector(".ai-chat-history")?.lastElementChild;
 
       /*
         One exception to bottoming out: a reply taller than the scroller would
@@ -218,8 +347,15 @@ function AIPlanner({
       return;
     }
 
-    textarea.style.height = "auto";
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 140)}px`;
+    function resizePrompt() {
+      if (!textarea) return;
+      textarea.style.height = "auto";
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 140)}px`;
+    }
+
+    resizePrompt();
+    window.addEventListener("resize", resizePrompt);
+    return () => window.removeEventListener("resize", resizePrompt);
   }, [prompt]);
 
   function requireLogin(): boolean {
@@ -310,6 +446,10 @@ function AIPlanner({
   }
 
   async function submitPlannerRequest() {
+    if (isSending) {
+      return;
+    }
+
     const trimmedPrompt = prompt.trim();
 
     if (!trimmedPrompt) {
@@ -396,159 +536,197 @@ function AIPlanner({
   }
 
   return (
-    <main className="ai-planner-page">
-      <section className="ai-planner-hero">
+    <section className="ai-planner-page" aria-labelledby="ai-planner-title">
+      <header className="ai-planner-hero">
         <div>
-          <p className="section-eyebrow">AI Planner</p>
-          <h1>Plan around what matters to you</h1>
-          <p>
-            Describe your ideal Manhattan trip, including interests, pace,
-            dates and accessibility needs.
+          <p className="section-eyebrow"><span /> A little less rush. A little more New York.</p>
+          <h1 id="ai-planner-title">Your Manhattan.<br /><span>Your kind of day.</span></h1>
+          <p className="ai-planner-intro">
+            Tell us what you love. We’ll help you plan around the crowds,
+            at your own pace.
           </p>
         </div>
-      </section>
-
-      <section className="ai-planner-card ai-chat-card">
-        <div className="ai-planner-card-heading">
-          <div>
-            <p className="section-eyebrow">Chat with Offpeak</p>
-          </div>
-
-          {conversationId && (
-            <button
-              type="button"
-              className="ai-new-conversation"
-              onClick={startNewConversation}
-              disabled={isSending}
-            >
-              Start again
-            </button>
-          )}
+        <div className="ai-planner-location">
+          <PlannerIcon name="pin" />
+          <span>MANHATTAN, NYC<small>Big city. Personal plans.</small></span>
         </div>
+      </header>
 
-        <div
-          className="ai-chat-history"
-          ref={chatHistoryRef}
-          aria-live="polite"
-        >
-          {messages.map((message) => (
-            <article
-              key={message.id}
-              className={`ai-chat-message ${message.role}`}
-            >
-              <strong>{message.role === "assistant" ? "Offpeak" : "You"}</strong>
-              <p>{message.text}</p>
-            </article>
-          ))}
-
-          {isSending && (
-            <article className="ai-chat-message assistant">
-              <strong>Offpeak</strong>
-              <p>Planning your next step...</p>
-            </article>
-          )}
-        </div>
-
-        {uiAction?.component === "poi_type_selector" && (
-          <fieldset className="ai-option-selector">
-            <legend>Select all that interest you</legend>
-
-            <div>
-              {uiAction.options.map((option) => (
-                <label key={option.value}>
-                  <input
-                    type="checkbox"
-                    checked={selectedOptions.includes(option.value)}
-                    onChange={() => toggleOption(option.value)}
-                    disabled={isSending}
-                  />
-                  <span>{option.label}</span>
-                </label>
-              ))}
-
-              <button
-                type="button"
-                className="ai-option-selector-continue"
-                onClick={() => void submitOptions()}
-                disabled={isSending || selectedOptions.length === 0}
-              >
-                Continue
-              </button>
+      <div className="ai-chat-stage" ref={chatStageRef}>
+        <section className="ai-planner-card ai-chat-card" aria-labelledby="ai-chat-title">
+          <div className="ai-planner-card-heading">
+            <div className="ai-planner-identity">
+              <span className="ai-planner-avatar"><PlannerIcon name="sparkle" /></span>
+              <div>
+                <h2 id="ai-chat-title">Chat with Offpeak</h2>
+                <p>Your personal trip planner</p>
+              </div>
             </div>
-          </fieldset>
-        )}
 
-        {!hasUserSentMessage && (
-          <div className="ai-planner-suggestions" aria-label="Prompt suggestions">
-            {PROMPT_SUGGESTIONS.map((suggestion) => (
+            {hasUserSentMessage && (
               <button
-                key={suggestion}
                 type="button"
-                onClick={() => {
-                  setPrompt(suggestion);
-                  setErrorMessage("");
-                }}
+                className="ai-new-conversation"
+                onClick={startNewConversation}
                 disabled={isSending}
               >
-                {suggestion}
+                <PlannerIcon name="reset" />
+                Start again
               </button>
-            ))}
+            )}
           </div>
-        )}
 
-        {errorMessage && (
-          <p className="error-message" role="alert">
-            {errorMessage}
-          </p>
-        )}
+          <div className="ai-chat-body" ref={chatHistoryRef}>
+            <div
+              className="ai-chat-history"
+              role="log"
+              aria-label="Conversation with Offpeak"
+              aria-live="polite"
+            >
+              {messages.map((message) => (
+                <article
+                  key={message.id}
+                  className={`ai-chat-message ${message.role}`}
+                >
+                  <strong>
+                    {message.role === "assistant" && <PlannerIcon name="sparkle" />}
+                    {message.role === "assistant" ? "Offpeak" : "You"}
+                  </strong>
+                  <p>{message.text}</p>
+                </article>
+              ))}
 
-        {successMessage && (
-          <p className="success-message" role="status">
-            {successMessage}
-          </p>
-        )}
+              {isSending && (
+                <article className="ai-chat-message assistant ai-chat-loading">
+                  <strong>Offpeak</strong>
+                  <p>
+                    <span className="ai-typing-dots" aria-hidden="true"><i /><i /><i /></span>
+                    Planning your next step…
+                  </p>
+                </article>
+              )}
+            </div>
 
-        <label htmlFor="ai-planner-prompt" className="sr-only">
-          Reply to the AI trip planner
-        </label>
+            {uiAction?.component === "poi_type_selector" && (
+              <fieldset className="ai-option-selector">
+                <legend>Select all that interest you</legend>
 
-        <div className="ai-composer">
-          <textarea
-            id="ai-planner-prompt"
-            ref={textareaRef}
-            rows={1}
-            maxLength={600}
-            placeholder="Tell Offpeak your dates, pace, interests or anything you want to avoid."
-            value={prompt}
-            onChange={(event) => {
-              setPrompt(event.target.value);
-              setErrorMessage("");
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                void submitPlannerRequest();
-              }
-            }}
-            disabled={isSending}
-          />
+                <div>
+                  {uiAction.options.map((option) => (
+                    <label key={option.value}>
+                      <input
+                        type="checkbox"
+                        checked={selectedOptions.includes(option.value)}
+                        onChange={() => toggleOption(option.value)}
+                        disabled={isSending}
+                      />
+                      <span>{option.label}</span>
+                    </label>
+                  ))}
 
-          <button
-            type="button"
-            className="ai-composer-send"
-            onClick={() => void submitPlannerRequest()}
-            disabled={isSending}
-            aria-label={isSending ? "Sending" : "Send to AI Planner"}
-          >
-            <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-              <path d="M12 19V5" />
-              <path d="m5 12 7-7 7 7" />
-            </svg>
-          </button>
-        </div>
+                  <button
+                    type="button"
+                    className="ai-option-selector-continue"
+                    onClick={() => void submitOptions()}
+                    disabled={isSending || selectedOptions.length === 0}
+                  >
+                    Continue
+                  </button>
+                </div>
+              </fieldset>
+            )}
 
-        <span className="ai-character-count">{prompt.length}/600</span>
-      </section>
+            {!hasUserSentMessage && (
+              <div className="ai-planner-inspiration">
+                <p>Not sure where to start? Try a little inspiration.</p>
+                <div className="ai-planner-suggestions" aria-label="Prompt suggestions">
+                  {PROMPT_SUGGESTIONS.map((suggestion) => (
+                    <button
+                      key={suggestion.title}
+                      type="button"
+                      onClick={() => {
+                        setPrompt(suggestion.prompt);
+                        setErrorMessage("");
+                        textareaRef.current?.focus();
+                      }}
+                      disabled={isSending}
+                    >
+                      <span className="ai-suggestion-icon"><PlannerIcon name={suggestion.icon} /></span>
+                      <strong>{suggestion.title}</strong>
+                      <span>{suggestion.detail}</span>
+                      <span className="ai-suggestion-arrow" aria-hidden="true">↗</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {errorMessage && (
+              <p className="error-message" role="alert">
+                {errorMessage}
+              </p>
+            )}
+
+            {successMessage && (
+              <p className="success-message" role="status">
+                {successMessage}
+              </p>
+            )}
+          </div>
+
+          <div className="ai-composer-area">
+            <label htmlFor="ai-planner-prompt" className="sr-only">
+              Reply to the AI trip planner
+            </label>
+
+            <div className="ai-composer">
+              <textarea
+                id="ai-planner-prompt"
+                ref={textareaRef}
+                rows={1}
+                maxLength={600}
+                placeholder="A museum morning, a quiet walk… what’s your kind of day?"
+                aria-describedby="ai-composer-help ai-character-count"
+                value={prompt}
+                onChange={(event) => {
+                  setPrompt(event.target.value);
+                  setErrorMessage("");
+                }}
+                onKeyDown={(event) => {
+                  if (
+                    event.key === "Enter" &&
+                    !event.shiftKey &&
+                    !event.nativeEvent.isComposing &&
+                    event.nativeEvent.keyCode !== 229
+                  ) {
+                    event.preventDefault();
+                    void submitPlannerRequest();
+                  }
+                }}
+                disabled={isSending}
+              />
+
+              <button
+                type="button"
+                className="ai-composer-send"
+                onClick={() => void submitPlannerRequest()}
+                disabled={isSending || !prompt.trim()}
+                aria-label={isSending ? "Sending" : "Send to AI Planner"}
+              >
+                <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                  <path d="M12 19V5" />
+                  <path d="m5 12 7-7 7 7" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="ai-composer-meta">
+              <span id="ai-composer-help">Enter to send <span aria-hidden="true">·</span> Shift + Enter for a new line</span>
+              <span id="ai-character-count" className="ai-character-count">{prompt.length} / 600</span>
+            </div>
+          </div>
+        </section>
+      </div>
 
       {itinerary && (
         <section
@@ -654,7 +832,7 @@ function AIPlanner({
           )}
         </section>
       )}
-    </main>
+    </section>
   );
 }
 

@@ -2,6 +2,7 @@ import enum
 import uuid
 from datetime import datetime, time
 from decimal import Decimal
+from pgvector.sqlalchemy import Vector
 
 from sqlalchemy import (
     ARRAY,
@@ -26,6 +27,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.core.constants import EMBEDDING_DIM
 
 
 class POIType(str, enum.Enum):
@@ -258,3 +260,22 @@ class POIPhotoCache(Base):
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+class POIEmbedding(Base):
+    __tablename__ = "poi_embedding"
+
+    poi_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("poi.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False)
+
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    document: Mapped[str] = mapped_column(Text, nullable=False)
+
+    embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIM), nullable=False)
+
+    embedded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

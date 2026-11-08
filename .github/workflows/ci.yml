@@ -34,8 +34,6 @@ jobs:
           DATABASE_URL: postgresql://
           JWT_SECRET_KEY: ci-not-secret
           GEMINI_API_KEY: ci-not-secret
-          GROQ_API_KEY: ci-not-secret
-          AI_PROVIDER: fallback
 
       - run: python -m pytest -q
 

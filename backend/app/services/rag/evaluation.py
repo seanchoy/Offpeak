@@ -22,7 +22,7 @@ def reciprocal_rank(retrieved: list[str], relevant: set[str]) -> float:
 
 
     n = len(retrieved)
-    for i in range(0, n):
+    for i in range(n):
         if retrieved[i] in relevant:
             return 1/(i+1)
 

@@ -1,10 +1,10 @@
 """Embedding providers. Anything with `model`, `embed_documents` and `embed_query` works."""
 from typing import Protocol
+
 from google.genai import types
 
 from app.core.config import settings
 from app.core.constants import EMBEDDING_DIM, EMBEDDING_MODEL
-
 
 
 class Embedder(Protocol):

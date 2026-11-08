@@ -5,12 +5,12 @@
 Prints one line: embedded=<n> skipped=<n> deleted=<n> (练习册 Part 4.3).
 """
 
-from app.database import SessionLocal
-from app.services.rag.embedder import make_gemini_embedder
-from app.services.rag.indexer import sync_poi_embeddings
 import app.models.ai_model
 import app.models.itinerary_model
 import app.models.user_model  # noqa: F401
+from app.database import SessionLocal
+from app.services.rag.embedder import make_gemini_embedder
+from app.services.rag.indexer import sync_poi_embeddings
 
 
 def main() -> None:

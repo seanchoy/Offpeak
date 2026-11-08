@@ -1,12 +1,11 @@
 """Find POIs for a free-text query: by meaning (vector), by words (keyword), or both."""
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
 
-from sqlalchemy.dialects.postgresql import to_tsquery
+from sqlalchemy import any_, func, literal, select
 from sqlalchemy.orm import Session
-from sqlalchemy import any_, select, literal, func
 
-from app.models.poi_model import POIType, POIEmbedding, POI
+from app.models.poi_model import POI, POIEmbedding, POIType
 from app.services.rag.embedder import Embedder
 from app.services.rag.evaluation import rrf_fuse
 

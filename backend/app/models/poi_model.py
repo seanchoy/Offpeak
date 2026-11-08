@@ -2,8 +2,8 @@ import enum
 import uuid
 from datetime import datetime, time
 from decimal import Decimal
-from pgvector.sqlalchemy import Vector
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     ARRAY,
     BigInteger,
@@ -26,8 +26,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.database import Base
 from app.core.constants import EMBEDDING_DIM
+from app.database import Base
 
 
 class POIType(str, enum.Enum):

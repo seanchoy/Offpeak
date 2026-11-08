@@ -1,7 +1,6 @@
 """Turn a POI row into the text we embed, plus a fingerprint of that text."""
 import hashlib
 
-
 # Google Places tags that carry no meaning for search.
 NOISE_TAGS = {"yes"}
 

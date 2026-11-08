@@ -1,7 +1,7 @@
 """Keep poi_embedding in sync with the poi table, embedding only what changed."""
 from dataclasses import dataclass
 
-from sqlalchemy import select, func, delete
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 

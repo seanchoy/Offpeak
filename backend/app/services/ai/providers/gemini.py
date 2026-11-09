@@ -213,8 +213,11 @@ class GeminiProvider(LLMProvider):
                     contents=[
                         *converted_history,
                         response.candidates[0].content,
+                        # The Gemini API only accepts "user" or "model" here; a
+                        # function response is sent back in a "user" turn.
+                        # role="tool" is rejected with 400 INVALID_ARGUMENT.
                         types.Content(
-                            role="tool",
+                            role="user",
                             parts=[
                                 tool_response
                             ]

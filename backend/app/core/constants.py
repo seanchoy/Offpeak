@@ -153,3 +153,7 @@ You are summarising the main details of a generated travel itinerary.
 into account.
 """
 
+
+# RAG: Gemini embedding model and vector size (poi_embedding.embedding is vector(768)).
+EMBEDDING_MODEL = "gemini-embedding-001"
+EMBEDDING_DIM = 768

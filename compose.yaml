@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgis/postgis:18-3.6
+    build: ./backend/db
     platform: linux/amd64
     environment:
       POSTGRES_DB: offpeak

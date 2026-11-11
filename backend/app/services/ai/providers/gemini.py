@@ -7,41 +7,73 @@ from google.genai import types
 
 from app.core.config import settings
 from app.core.constants import (
-        EXTRACTION_PROMPT,
-        POI_TYPE_OPTIONS,
-        SUMMARY_PROMPT,
-        SYSTEM_PROMPT,
+    EXTRACTION_PROMPT,
+    POI_TYPE_OPTIONS,
+    SUMMARY_PROMPT,
+    SYSTEM_PROMPT,
 )
 from app.core.exceptions import LLMUnresponsiveError
 from app.models.ai_model import Message, Trip
 from app.schemas.ai import ChatResponse, GeminiResponse, TripParameters, UIOption
 from app.services.ai.base import LLMProvider
+from app.services.ai.search_tool import (
+    SEARCH_POIS,
+    run_search_tool,
+    search_pois_declaration,
+)
+from app.services.ai.tool_loop import run_tool_loop
+from app.services.ai.trip_state import (
+    fallback_message,
+    missing_details_error,
+    missing_trip_details,
+    next_selector,
+)
 from app.services.itinerary.itinerary_service import auto_generate_itinerary
+from app.services.rag.embedder import make_gemini_embedder
 from app.services.user_services import get_user_by_id
 
-tools = [
-    types.Tool(
-        function_declarations=[
-            types.FunctionDeclaration(
-                name="auto_generate_itinerary",
-                description="""
-                            Generate the user's itinerary when all required trip details have been collected.
-                            Call this only when you know:
-                            - itinerary name
-                            - trip dates
-                            - pace of days
-                            - POIs and POI types to be excluded
-                            - user POI type preferences
-                            """,
-                parameters=types.Schema(
-                    type="OBJECT",
-                    properties={},
-                    required=[]
-                )
-            )
-        ]
-    )
-]
+CHAT_MODEL = "gemini-3.5-flash"
+ITINERARY_TOOL = "auto_generate_itinerary"
+
+ITINERARY_DECLARATION = types.FunctionDeclaration(
+    name=ITINERARY_TOOL,
+    description="""
+                Generate the user's itinerary when all required trip details have been collected.
+                Call this only when you know:
+                - itinerary name
+                - trip dates
+                - pace of days
+                - POIs and POI types to be excluded
+                - user POI type preferences
+                """,
+    parameters=types.Schema(type="OBJECT", properties={}, required=[]),
+)
+
+# TODO 5.1: also offer search_pois (after the itinerary tool)
+SEARCH_POIS_DECLARATION = search_pois_declaration()
+tools = [types.Tool(function_declarations=[ITINERARY_DECLARATION]), types.Tool(function_declarations=[SEARCH_POIS_DECLARATION])]
+
+# Appended to the chat system prompt (练习册 Part 5).
+RECOMMENDATION_RULES = """
+Recommendations:
+- When the user asks for recommendations, ideas, or places that match a mood or activity,
+  call search_pois first. Do this even in the middle of collecting trip details, then
+  continue with the next trip question.
+- Recommend only attractions that search_pois returned, by their exact name. Never invent
+  attractions or use places you know from elsewhere.
+- Say in one short phrase why each place fits, using its summary.
+- If search_pois returns no results or an error, say you could not find a match and ask
+  one question that would help; do not guess.
+- Reply in the language the user wrote in.
+"""
+
+
+def parse_reply(response) -> GeminiResponse:
+    """The structured reply if Gemini returned one, otherwise its plain text (练习册 Part 5)."""
+    if isinstance(response.parsed, GeminiResponse):
+        return response.parsed
+    return GeminiResponse(message=response.text or "")
+
 
 def make_json_serializable(obj):
         if isinstance(obj, (date, datetime, time)):
@@ -75,6 +107,7 @@ class GeminiProvider(LLMProvider):
         self._direct_client = (
             None if self._proxies else genai.Client(api_key=settings.GEMINI_API_KEY)
         )
+        self._search_embedder = None
 
     def _client(self, proxy):
         if proxy is None:
@@ -130,7 +163,14 @@ class GeminiProvider(LLMProvider):
                 })
         return final_history
 
-    def generate_chat_response(self, history, summary, trip_details: Trip, conv_id, db, user):
+    def _embedder(self):
+        # Built on first use, so importing this module never needs the embedding client.
+        if self._search_embedder is None:
+            self._search_embedder = make_gemini_embedder()
+        return self._search_embedder
+
+    def chat_turn(self, history, summary, trip_details: Trip, conv_id, db, user):
+        """One assistant turn: the reply, plus every tool call made on the way (练习册 Part 5)."""
         converted_history = self.convert_for_gemini(history)
 
         user_profile = get_user_by_id(user, db)
@@ -168,7 +208,7 @@ class GeminiProvider(LLMProvider):
         NEVER return ui_action in message field of response schema.
 
         The tool returs the itinerary details:
-        - Write ONE friendly paragraph.   
+        - Write ONE friendly paragraph.
         - Do not output JSON.
         - Do not output keys.
         - Do not output ui_action.
@@ -176,74 +216,97 @@ class GeminiProvider(LLMProvider):
         - Return only plain text.
         - Only if a user has accessibility needs, tell them that their needs have been taken
         into account.
+
+        {RECOMMENDATION_RULES}
         """
-        response = self._generate(
-            model="gemini-3.5-flash",
-            contents=converted_history,
-            config={
-                "system_instruction": system_instruction,
-                "tools": tools,
-                "response_schema": GeminiResponse
+
+        itinerary = {}
+
+        # tool 1
+        def generate_itinerary(args: dict) -> dict:
+            # The model may ask for an itinerary before every detail is stored (for
+            # example when the trip name was not picked up). Send it back to ask
+            # instead of failing the whole request.
+            missing = missing_trip_details(trip_details)
+            if missing:
+                return missing_details_error(missing)
+            try:
+                itinerary_json = make_json_serializable(
+                    auto_generate_itinerary(trip=trip_details, conv_id=conv_id, db=db, user=user)
+                )
+            except LLMUnresponsiveError:
+                raise
+            except Exception as e:  # noqa: BLE001
+                # Broad by design: any failure to build the plan becomes something
+                # the model can explain, rather than a 500 for the visitor.
+                print(f"Itinerary generation failed: {e!r}")
+                if db is not None:
+                    db.rollback()
+                return {
+                    "error": (
+                        "The itinerary could not be built from these trip details. Tell the "
+                        "user, and suggest changing the dates, the pace or the excluded types."
+                    )
+                }
+            itinerary["json"] = itinerary_json
+            return {
+                "trip_name": itinerary_json["trip_name"],
+                "number_of_days": itinerary_json["stops"][-1]["day_number"],
+                "number_of_pois": len(itinerary_json["stops"]),
+                "pois": [stop["poi_name"] for stop in itinerary_json["stops"]],
             }
-        )
 
-        if response.function_calls:
-            function_call = response.function_calls[0]
-            if function_call.name == "auto_generate_itinerary":
-                itinerary_json = auto_generate_itinerary(
-                    trip=trip_details,
-                    conv_id=conv_id,
-                    db=db,
-                    user=user
-                )
-                itinerary_json = make_json_serializable(itinerary_json)
+        # TODO 5.4: handlers = {tool name: function(args) -> dict} for ITINERARY_TOOL and SEARCH_POIS
+        #           (the search uses this user's wheelchair need from user_profile.accessibility)
+        # TODO 5.4: generate(contents, allow_tools) -> self._generate(...), tools only when allowed
+        # TODO 5.4: run the loop, turn the last response into a reply, and
+        #           return (ChatResponse, ToolLoopResult); the itinerary goes into the ChatResponse
 
-                tool_response = types.Part.from_function_response(
-                    name="auto_generate_itinerary",
-                    response= {
-                        "trip_name": itinerary_json["trip_name"],
-                        "number_of_days": itinerary_json["stops"][-1]["day_number"],
-                        "number_of_pois": len(itinerary_json["stops"]),
-                        "pois": [stop["poi_name"] for stop in itinerary_json["stops"]]  
-                    }
-                )
+        handlers = {ITINERARY_TOOL: generate_itinerary,
+                    SEARCH_POIS: lambda args: run_search_tool(db, self._embedder(), args, wheelchair_user= bool(user_profile.accessibility))}
 
-                final_response = self._generate(
-                    model="gemini-3.5-flash",
-                    contents=[
-                        *converted_history,
-                        response.candidates[0].content,
-                        types.Content(
-                            role="tool",
-                            parts=[
-                                tool_response
-                            ]
-                        )
-                    ],
-                    config={
-                        "system_instruction": system_instruction
-                    }
-                )
-                return ChatResponse(
-                    message=final_response.text,
-                    ui_action=None,
-                    itinerary=itinerary_json
-                )
-        
-        gemini_response = response.parsed
-        if gemini_response is None:
-            return ChatResponse(
-                message=response.text,
-                ui_action=None,
-                itinerary=None
-            )
-        if gemini_response.ui_action and gemini_response.ui_action.component == "poi_type_selector":
-            gemini_response.ui_action.options = [
-                UIOption(**option)
-                for option in POI_TYPE_OPTIONS
-                ]
-                
-        return gemini_response
+        def generate(contents, allow_tools):
+            config = {
+                "system_instruction": system_instruction,
+                "response_schema": GeminiResponse,
+            }
+
+            if allow_tools:
+                config["tools"] = tools
+
+            return self._generate(model = CHAT_MODEL, contents = contents, config = config)
+
+        result = run_tool_loop(generate, converted_history, handlers)
+        reply = parse_reply(result.response)
+        # Now and then the model returns an empty message; never show a blank bubble.
+        if not reply.message.strip():
+            reply.message = fallback_message(trip_details)
+
+        # check if there is itinerary
+        if "json" in itinerary:
+            return ChatResponse(message=reply.message, ui_action=None, itinerary=itinerary["json"]), result
+
+        # The model sometimes asks about place types without sending the selector.
+        # The stored trip says which one is due, so the visitor always gets it.
+        if reply.ui_action is None:
+            reply.ui_action = next_selector(trip_details)
+
+        if reply.ui_action and reply.ui_action.component == "poi_type_selector":
+            reply.ui_action.options = [UIOption(**option) for option in POI_TYPE_OPTIONS]
+        return ChatResponse(message=reply.message, ui_action=reply.ui_action, save_to_history=reply.save_to_history), result
+
+
+
+
+
+
+
+
+
+
+    def generate_chat_response(self, history, summary, trip_details: Trip, conv_id, db, user):
+        reply, _ = self.chat_turn(history, summary, trip_details, conv_id, db, user)
+        return reply
 
     def extract_trip_parameters(self, prompt, last_message, trip_details) -> TripParameters:
         system_instruction = f"""

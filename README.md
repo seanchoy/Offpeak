@@ -2,7 +2,7 @@
 
 <p align="center">
   <a href="https://skillicons.dev">
-    <img src="https://skillicons.dev/icons?i=python,fastapi,postgres,react,ts,vite,npm,swift,git,figma&theme=light" />
+    <img src="https://skillicons.dev/icons?i=python,fastapi,postgres,react,ts,vite,swift,docker,githubactions,figma&theme=light" />
   </a>
 </p>
 
@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" />
   <img src="https://img.shields.io/badge/status-live-brightgreen.svg" alt="Status: Live" />
   <img src="https://img.shields.io/badge/COMP47360-Research%20Project-blue.svg" alt="COMP47360 Research Project" />
-  <a href="https://offpeak.seancai.dev/"><img src="https://img.shields.io/badge/website-offpeak.live-orange.svg" alt="Website" /></a>
+  <a href="https://offpeak.seancai.dev/"><img src="https://img.shields.io/badge/website-offpeak.seancai.dev-orange.svg" alt="Website" /></a>
 </p>
 
 ## 🌟 Project Overview
@@ -18,6 +18,10 @@
 **Offpeak** is a trip itinerary planner web and mobile application built for tourists visiting Manhattan, New York. The central problem it addresses is the uncertainty visitors face when planning a day out: which attractions will be overcrowded, when is the best time to visit each one, and how to build a realistic multi-stop itinerary around that.
 
 Offpeak solves this by combining a curated Points-of-Interest (POI) database for Manhattan with a machine-learning busyness prediction model, letting users generate and save personalised itineraries that account for predicted crowd levels, accessibility needs, and trip dates.
+
+An **AI Planner** sits on top: visitors can describe what they are after in their own words ("somewhere quiet to watch birds") and get recommendations retrieved from Offpeak's own catalogue (RAG), then turn the conversation into a crowd-aware itinerary. The assistant is a Gemini tool-calling agent; recommendations come only from places Offpeak has data for.
+
+> Development continues in this fork ([seanchoy/Offpeak](https://github.com/seanchoy/Offpeak)) after the COMP47360 project: RAG-based recommendations, the tool-calling planner, Google sign-in, and self-hosted CI/CD.
 
 <p align="center">
   <img src="docs/images/web-explore.png" alt="Offpeak web app — Explore" width="95%" />
@@ -86,7 +90,10 @@ Offpeak solves this by combining a curated Points-of-Interest (POI) database for
 The app is organised into five tabs, available on both web and mobile:
 
 - **🧭 Explore** — Browse and search Manhattan points of interest. Each POI card shows a photo, name, neighbourhood, rating, crowd level, and a best-time-to-visit hint, plus an accessibility icon (♿) where applicable. Tapping a card opens its detail page, with a 6-slot Crowd Forecast chart (colour-coded Quiet / Moderate / Busy), a "Best Time to Visit" window, and an accessibility section shown by default, listing confirmed wheelchair or step-free access and otherwise linking to the venue's own site.
-- **🤖 AI Planner** — A conversational planner: the assistant asks whether you're starting a new trip or refining an existing one in My Itinerary, then gathers trip dates, interests, and accessibility needs through dialogue. Once confirmed, the generated itinerary is saved into My Itinerary.
+- **🤖 AI Planner** — A conversational planner with two jobs:
+  - **Find places:** ask in natural language ("rainy-day art, somewhere quiet") and the assistant searches Offpeak's catalogue by meaning, answering only with places it found. Each recommended place appears as a card that opens its detail page.
+  - **Plan a trip:** the assistant collects a trip name, dates and pace, then shows selectors for the place types you prefer and want to avoid. On confirmation it builds a crowd-aware itinerary (with a photo cover and crowd forecast for each stop) that can be saved — saving the same itinerary twice keeps one copy — or opened in My Itinerary.
+  - Your wheelchair setting always applies to searches, and the conversation survives a page refresh until you start again or log out.
 - **🗓️ My Itinerary** (manual, main flow) — Pick POIs and trip dates directly; the system auto-schedules them into a time-slotted itinerary based on predicted crowd level and location, prioritising Quiet/Moderate slots where possible. Stops can be removed, with the schedule reflowing automatically.
 - **🔖 Saved** — POIs can be saved straight from Explore (no itinerary needed) and appear here immediately; saved itineraries can also be reopened in full or deleted.
 - **👤 Profile** — Account info (username, joined date) and an accessibility setting (e.g. step-free routes). When enabled, itineraries are restricted to POIs with *confirmed* wheelchair access; places with only partial access, or with no accessibility data, are left out and a warning is shown if you add one anyway.
@@ -96,12 +103,13 @@ The app is organised into five tabs, available on both web and mobile:
 ## 🧰 Technology Stack
 
 - **Backend:** [Python](https://www.python.org/) — [FastAPI](https://fastapi.tiangolo.com/) (REST API), [SQLAlchemy](https://www.sqlalchemy.org/) (ORM), [Alembic](https://alembic.sqlalchemy.org/) (database migrations)
-- **Database:** [PostgreSQL](https://www.postgresql.org/)
+- **Database:** [PostgreSQL](https://www.postgresql.org/) with [PostGIS](https://postgis.net/) and [pgvector](https://github.com/pgvector/pgvector)
+- **AI / LLM:** [Gemini API](https://ai.google.dev/) — tool calling, structured output and embeddings; RAG over the POI catalogue with pgvector
 - **Frontend (Web):** [React](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/) + [Vite](https://vitejs.dev/)
 - **Mobile:** Native iOS ([Swift](https://developer.apple.com/swift/) + [SwiftUI](https://developer.apple.com/swiftui/))
 - **Machine Learning:** [Python](https://www.python.org/), [Pandas](https://pandas.pydata.org/), [DuckDB](https://duckdb.org/)
 - **Design / Mockups:** [Figma](https://www.figma.com/), [Stitch](https://stitch.withgoogle.com/)
-- **Deployment:** Backend on [Google Cloud Run](https://cloud.google.com/run), database on [Neon](https://neon.tech/), frontend on [Vercel](https://vercel.com/)
+- **Deployment:** [Docker Compose](https://docs.docker.com/compose/) on a [DigitalOcean](https://www.digitalocean.com/) Droplet behind [Caddy](https://caddyserver.com/); images on GHCR, shipped by [GitHub Actions](https://github.com/features/actions)
 
 ---
 
@@ -117,9 +125,10 @@ The datasets and DB seed that power this live in [`ml/`](ml/README.md).
 
 ### 💾 Prerequisites
 
-- Python 3.x and `pip`
+- [Docker](https://www.docker.com/) (recommended: runs Postgres with PostGIS and pgvector, migrations and the API for you)
+- *or, without Docker:* Python 3.12 and `pip`, plus PostgreSQL with the **PostGIS** and **pgvector** extensions
 - Node.js and `npm`
-- PostgreSQL (installed locally, or a GUI client such as [DBeaver](https://dbeaver.io/) or [pgAdmin](https://www.pgadmin.org/))
+- A [Gemini API key](https://ai.google.dev/) (the AI Planner and the search index need it)
 - Xcode (for iOS development) — iOS 26
 
 ### 🔧 Backend Setup
@@ -130,6 +139,21 @@ Backend code resides in the `backend/app` folder:
 - FastAPI application entry point: `backend/app/main.py`
 - API endpoint definitions: `backend/app/routers/`
 - Database connection code: `backend/app/database.py`
+
+#### Option A — Docker Compose (recommended)
+
+```bash
+cp backend/.env.example backend/.env       # then fill in JWT_SECRET_KEY and GEMINI_API_KEY
+echo "POSTGRES_PASSWORD=choose-a-password" > .env
+
+docker compose up -d --build                         # Postgres (PostGIS + pgvector) → migrations → API
+docker compose --profile seed run --rm seed          # load the POI data (fresh database only)
+docker compose run --rm api python -m app.scripts.embed_pois   # build the search index for the AI Planner
+```
+
+The API runs at [http://localhost:8000](http://localhost:8000) (docs at `/docs`). Re-run `embed_pois` after POI descriptions change; it only re-embeds places whose text changed.
+
+#### Option B — Run it yourself
 
 **1. Install dependencies**
 
@@ -144,7 +168,7 @@ A `.env.example` template file is provided inside `/backend`. Copy it to `.env` 
 
 **3. Set up a local PostgreSQL database**
 
-Create a database, either via a GUI, or in the terminal:
+The database needs the **PostGIS** and **pgvector** extensions installed on the server (the migrations run `CREATE EXTENSION`, which fails if pgvector is missing). Create a database, either via a GUI, or in the terminal:
 
 ```bash
 psql postgres
@@ -163,7 +187,7 @@ In your `.env`, add your database URL:
 DATABASE_URL=postgresql+psycopg2://username:password@localhost:5432/database_name
 ```
 
-Replace `username`, `password`, port (usually `5432`), and `database_name` with your actual values. `backend/app/database.py` reads this variable via `os.getenv("DATABASE_URL")` — no code changes needed if your `.env` variable name matches.
+Replace `username`, `password`, port (usually `5432`), and `database_name` with your actual values. All settings are read from `.env` by `backend/app/core/config.py`, so no code changes are needed.
 
 **5. Run database migrations (Alembic)**
 
@@ -190,7 +214,16 @@ psql -d your_database_name -f 06_dml_update_poi_best_time.sql
 psql -d your_database_name -f 07_dml_update_poi_content.sql
 ```
 
-**7. Run FastAPI**
+**7. Build the search index**
+
+The AI Planner's recommendations search POI embeddings. Generate them once (needs `GEMINI_API_KEY`):
+
+```bash
+cd backend
+python -m app.scripts.embed_pois
+```
+
+**8. Run FastAPI**
 
 For web development (paired with the React frontend):
 
@@ -199,7 +232,7 @@ cd backend
 uvicorn app.main:app --reload
 ```
 
-FastAPI will run at [http://localhost:8000](http://localhost:8000), with interactive endpoint docs at [http://localhost:8000/docs](http://localhost:8000/docs). Make sure the CORS middleware in `main.py` allows requests from `http://localhost:5173` (the default Vite dev server address) so the frontend can reach the backend.
+FastAPI will run at [http://localhost:8000](http://localhost:8000), with interactive endpoint docs at [http://localhost:8000/docs](http://localhost:8000/docs). The Vite dev server proxies `/api` to this address, so the web app needs no CORS setup.
 
 For mobile development (so a physical device on the same network can reach it):
 
@@ -249,8 +282,8 @@ No physical device or Apple Developer account is required.
 #### 2. Get the code & open the project
 
 ```bash
-git clone https://github.com/comp47360-team8/manhattan-travel-app.git
-cd manhattan-travel-app/ios
+git clone https://github.com/seanchoy/Offpeak.git
+cd Offpeak/ios
 open ManhattanTravelApp.xcodeproj
 ```
 
@@ -317,25 +350,36 @@ xcodebuild build \
 
 ## 🧪 Testing
 
-The backend has a [pytest](https://docs.pytest.org/) suite for the **itinerary scheduling engine** — the app's core algorithm. The tests are pure-logic (no database or network), so they're fast and deterministic.
+**Backend** — a [pytest](https://docs.pytest.org/) suite. Gemini is never called: a scripted fake model stands in for it.
 
 ```bash
 cd backend
-pip install -r requirements.txt -r requirements-dev.txt   # requirements-dev.txt adds pytest
+pip install -r requirements.txt -r requirements-dev.txt   # requirements-dev.txt adds pytest and ruff
 python -m pytest
 ```
 
-They run automatically in CI on every push and pull request (see [`ci.yml`](.github/workflows/ci.yml)).
-
-| Test file | What it covers |
+| Tests | What they cover |
 |---|---|
-| `tests/test_scheduler.py` | day/slot assignment, closed-POI handling, overflow, and warnings (integration-style) |
-| `tests/test_find_best_slot.py` | the "busyness-first" rule that places each POI in its quietest open slot |
-| `tests/test_overflow.py` | the overflow cost model (70% busyness / 30% geography) |
+| `tests/test_scheduler.py`, `test_find_best_slot.py`, `test_overflow.py`, `test_utils.py` | the itinerary scheduling engine: day/slot assignment, the quietest-open-slot rule, the overflow cost model (70% busyness / 30% geography), POI-per-day distribution |
 | `tests/test_accessibility.py` | the wheelchair-confirmed-only accessibility filter |
-| `tests/test_utils.py` | POI-per-day distribution and day-of-week range helpers |
+| `tests/rag/` | the embedding table, POI documents and incremental indexing, retrieval with filters, hybrid ranking and the retrieval metrics (recall@k, MRR) |
+| `tests/planner/`, `test_planner_guards.py`, `test_trip_state.py` | the AI Planner: the search tool's declaration and argument checks, the tool loop, the chat turn, and the fallbacks when the model skips a step |
+| `test_itinerary_save.py`, `test_google_*.py`, `test_users_me.py`, `test_photo_attribution.py`, `test_poi_profile.py` | saving itineraries, Google sign-in, the user profile, photo credits and POI profiles |
 
-> The web frontend and iOS client do not yet have automated tests.
+Tests that need a real database (with pgvector) are skipped unless `TEST_DATABASE_URL` points to a **disposable** Postgres — they drop and recreate their tables.
+
+To measure retrieval quality against the golden set: `docker compose run --rm api python -m app.scripts.eval_retrieval`.
+
+**Web frontend** — [Vitest](https://vitest.dev/) and Testing Library:
+
+```bash
+cd frontend
+npm test
+```
+
+CI ([`ci.yml`](.github/workflows/ci.yml)) runs on every push and pull request: backend `ruff`, an import smoke test and `pytest`; frontend lint and build.
+
+> The iOS client does not yet have automated tests.
 
 ---
 
@@ -352,29 +396,36 @@ They run automatically in CI on every push and pull request (see [`ci.yml`](.git
 
 ## 🌐 Deployment
 
-Offpeak is live at **[https://offpeak.live/](https://offpeak.live/)**. See **[DEPLOYMENT.md](DEPLOYMENT.md)** for the full hosting architecture, DNS, and CI/CD.
+Offpeak is live at **[https://offpeak.seancai.dev/](https://offpeak.seancai.dev/)**, self-hosted on a single [DigitalOcean](https://www.digitalocean.com/) Droplet with Docker Compose:
 
-- **Frontend:** React + Vite static build on [Vercel](https://vercel.com/) — `offpeak.live`.
-- **Backend:** FastAPI on [Google Cloud Run](https://cloud.google.com/run) (`us-west1`) — reached at `api.offpeak.live`.
-- **Database:** PostgreSQL + PostGIS on [Neon](https://neon.tech/) (US West).
-- **CI/CD:** merging `main` → `production` triggers GitHub Actions ([`deploy.yml`](.github/workflows/deploy.yml)) to run migrations, deploy the backend to Cloud Run, and deploy the frontend to Vercel.
+- **Edge:** [Caddy](https://caddyserver.com/) terminates TLS and routes `/api/*` to the API and everything else to the web container, so the web app and API share one origin.
+- **Web:** the Vite build served by Caddy in its own container (`ghcr.io/seanchoy/offpeak-web`).
+- **API:** FastAPI (`ghcr.io/seanchoy/offpeak-api`); a one-shot `migrate` container runs `alembic upgrade head` before it starts.
+- **Database:** PostgreSQL 18 with PostGIS and pgvector, in a container with a persistent volume.
+- **CI/CD:** when CI passes on `main`, [`deploy.yml`](.github/workflows/deploy.yml) builds both images, pushes them to GHCR tagged with the commit SHA, and over SSH tells the server to pull them and restart (`docker compose pull && up -d`).
+
+> [DEPLOYMENT.md](DEPLOYMENT.md) describes the original course deployment (Cloud Run, Neon and Vercel on `offpeak.live`).
 
 ### 🔑 Environment variables
 
-The backend reads the variables below (template: [`backend/.env.example`](backend/.env.example)). Locally they live in `backend/.env`; in production they are set on Cloud Run — sensitive ones via **GCP Secret Manager**, the rest as plain env vars.
+The backend reads the variables below (template: [`backend/.env.example`](backend/.env.example)). Locally they live in `backend/.env`; in production they live in a `.env` file on the server, outside the repository and the images.
 
 | Variable | Purpose | Required |
 |---|---|---|
-| `DATABASE_URL` | Postgres connection string (pooled in prod) | yes |
+| `DATABASE_URL` | Postgres connection string | yes |
 | `JWT_SECRET_KEY` | signs auth tokens | yes |
-| `GEMINI_API_KEY` | Gemini — primary LLM | yes |
-| `GROQ_API_KEY` | Groq / Llama — fallback LLM | yes |
-| `AI_PROVIDER` | LLM strategy; `fallback` = Gemini with Groq fallback | yes |
-| `GOOGLE_PLACES_API_KEY` | POI photos; endpoint returns none if unset | optional |
+| `GEMINI_API_KEY` | Gemini — chat, tool calling and embeddings | yes |
+| `GEMINI_PROXY_URL`, `GEMINI_PROXY_RETRIES` | route Gemini through a proxy (one URL or a comma-separated list) and retry across them | optional |
+| `GOOGLE_PLACES_API_KEY` | POI photos; the photo endpoint returns 404 if unset | optional |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google sign-in; its routes return 503 if unset | optional |
+| `PUBLIC_API_URL` | absolute base for photo links handed to clients | optional |
 | `ALLOWED_ORIGINS` | browser CORS allowlist | optional¹ |
+| `ENABLE_QUERY_COUNTER` | adds an `X-Query-Count` header per request, for performance work; keep off in production | optional |
 | `ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES`, `REFRESH_TOKEN_EXPIRE_DAYS` | auth-token settings; have code defaults | optional |
 
-¹ Production doesn't depend on CORS — the web app is same-origin via the Vercel rewrite and iOS is native.
+¹ Production doesn't depend on CORS — the web app and API share one origin behind Caddy, and iOS is native.
+
+The Docker Compose setup also reads `POSTGRES_PASSWORD` from a `.env` file in the repository root.
 
 ---
 

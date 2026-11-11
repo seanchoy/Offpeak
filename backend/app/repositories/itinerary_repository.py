@@ -92,8 +92,39 @@ def get_busyness_for_trip(poi_ids, trip_days: list[int], db: Session):
     for row in results
 ]
 
+def _stop_key(stop) -> tuple:
+    """What makes a stop the same stop: the place, the day and the time slot."""
+    return (stop.poi_id, stop.day_number, stop.visit_date, stop.slot_start, stop.position)
+
+
+def is_same_itinerary(saved: SavedItinerary, itinerary: ItineraryResponse) -> bool:
+    """True when `saved` already holds this generated itinerary (name, dates and stops)."""
+    return (
+        saved.name == itinerary.trip_name
+        and saved.start_date == itinerary.start_date
+        and saved.end_date == itinerary.end_date
+        and sorted(map(_stop_key, saved.stops)) == sorted(map(_stop_key, itinerary.stops))
+    )
+
+
 def save_itinerary_for_user(itinerary: ItineraryResponse, db: Session, user: uuid.UUID):
-    """Save a generated itinerary and its stops for an authenticated user."""
+    """Save a generated itinerary and its stops for an authenticated user.
+
+    Saving is idempotent: posting the same itinerary again (a second click, a
+    retry after a timeout, saving from another page) returns the copy the user
+    already has instead of creating a duplicate.
+    """
+    candidates = db.scalars(
+        select(SavedItinerary).where(
+            SavedItinerary.user_id == user,
+            SavedItinerary.name == itinerary.trip_name,
+            SavedItinerary.start_date == itinerary.start_date,
+            SavedItinerary.end_date == itinerary.end_date,
+        )
+    )
+    for saved in candidates:
+        if is_same_itinerary(saved, itinerary):
+            return saved
 
     itinerary_entry = SavedItinerary(
         user_id=user,

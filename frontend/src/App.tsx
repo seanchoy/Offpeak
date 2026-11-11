@@ -27,6 +27,7 @@ import {
 import { getAuthErrorMessage } from "./auth/authError";
 import { EMAIL_SIGNUP_ENABLED } from "./features";
 import { fetchPhotoAttribution, isGooglePlacesPhoto } from "./poiPhoto";
+import { clearPlannerSession } from "./plannerSession";
 import type { PhotoAttribution } from "./poiPhoto";
 import { fetchCurrentUser } from "./auth/currentUser";
 
@@ -709,6 +710,7 @@ function App() {
   /* Clear local display state after the backend session ends. */
   const handleLocalLogout = useCallback(() => {
     localStorage.removeItem(USER_STORAGE_KEY);
+    clearPlannerSession();
     setUser(null);
     setProfilePreferences({ stepFreeRoutes: false });
     setSavedPoiSlugs([]);
@@ -835,6 +837,7 @@ function App() {
             Clear it so the interface returns to the logged-out state.
           */
           localStorage.removeItem(USER_STORAGE_KEY);
+          clearPlannerSession();
           setUser(null);
           setProfilePreferences({ stepFreeRoutes: false });
           setSavedPoiSlugs([]);

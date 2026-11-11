@@ -2,6 +2,13 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { ApiError, apiFetch } from "../api";
 import { groupStopsByDay } from "../itinerary";
+import { findMentionedPois } from "../plannerRecommendations";
+import {
+  clearPlannerSession,
+  loadPlannerSession,
+  savePlannerSession,
+  type PlannerMessage,
+} from "../plannerSession";
 import type {
   AiChatResponse,
   AiConversationResponse,
@@ -11,26 +18,52 @@ import type {
   SavedItinerary,
 } from "../types";
 import BusynessChart from "./BusynessChart";
+import PlannerRecommendations from "./PlannerRecommendations";
 import "./AiPlanner.css";
 
-const PROMPT_SUGGESTIONS = [
+/*
+  Two kinds of starting point: asking for places (the planner searches the
+  catalogue and answers with place cards) and planning a trip (the planner
+  collects details and builds an itinerary).
+*/
+const PROMPT_SUGGESTION_GROUPS = [
   {
-    title: "Art & architecture",
-    detail: "Museums, landmarks, fewer crowds",
-    icon: "museum",
-    prompt: "Plan a low-crowd day with museums and architecture.",
+    kind: "explore",
+    title: "Find places",
+    hint: "Ideas you can browse",
+    suggestions: [
+      {
+        title: "Quiet green spaces",
+        detail: "Gardens & parks away from the crowds",
+        icon: "leaf",
+        prompt: "Recommend some quiet green spaces away from the crowds.",
+      },
+      {
+        title: "Rainy-day ideas",
+        detail: "Indoor spots worth the trip",
+        icon: "umbrella",
+        prompt: "What are some good indoor places to visit on a rainy day?",
+      },
+    ],
   },
   {
-    title: "Room to explore",
-    detail: "Accessible parks & city views",
-    icon: "leaf",
-    prompt: "Plan an accessible weekend with parks and viewpoints.",
-  },
-  {
-    title: "A slower kind of day",
-    detail: "Local markets & neighbourhood walks",
-    icon: "coffee",
-    prompt: "Plan a relaxed local day with markets and neighbourhood walks.",
+    kind: "plan",
+    title: "Plan a trip",
+    hint: "We'll build the itinerary",
+    suggestions: [
+      {
+        title: "Art & architecture",
+        detail: "Museums, landmarks, fewer crowds",
+        icon: "museum",
+        prompt: "Plan a low-crowd day with museums and architecture.",
+      },
+      {
+        title: "A slower kind of day",
+        detail: "Local markets & neighbourhood walks",
+        icon: "coffee",
+        prompt: "Plan a relaxed local day with markets and neighbourhood walks.",
+      },
+    ],
   },
 ];
 
@@ -46,6 +79,8 @@ function PlannerIcon({ name }: { name: string }) {
         <><path d="M20 4c-9-1-16 3-15 10 1 7 9 7 12 2 2-3 3-7 3-12ZM4 21l10-11" /></>
       ) : name === "coffee" ? (
         <><path d="M4 9h13v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V9Zm13 1h2a3 3 0 0 1 0 6h-2M7 3v2m5-2v2M3 23h16" /></>
+      ) : name === "umbrella" ? (
+        <><path d="M3 12a9 9 0 0 1 18 0H3Z" /><path d="M12 12v7a2 2 0 0 0 4 0M12 3v0" /></>
       ) : name === "pin" ? (
         <><path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 1 1 14 0Z" /><circle cx="12" cy="10" r="2.5" /></>
       ) : name === "reset" ? (
@@ -63,12 +98,6 @@ const AI_CONNECTION_ERROR =
   "Something went wrong with the connection. Check your network and try again.";
 const AI_SERVER_ERROR =
   "The system is busy right now. Please try again shortly.";
-
-type PlannerMessage = {
-  id: number;
-  role: "user" | "assistant";
-  text: string;
-};
 
 type AIPlannerProps = {
   pois: Poi[];
@@ -104,6 +133,15 @@ function formatTime(value: string): string {
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(2026, 0, 1, hour, minute));
+}
+
+/* "Quiet", "Moderate" or "Busy" from the scheduler -> the matching colour. */
+function getCrowdClass(crowdLevel: string): string {
+  const level = crowdLevel.toLowerCase();
+  if (level.includes("quiet") || level.includes("low")) return "quiet";
+  if (level.includes("busy") || level.includes("high")) return "busy";
+  if (level.includes("moderate") || level.includes("medium")) return "moderate";
+  return "pending";
 }
 
 function isAuthenticationError(error: unknown): boolean {
@@ -142,22 +180,39 @@ function AIPlanner({
   onLoginRequired,
   onItineraryGenerated,
 }: AIPlannerProps) {
+  // A conversation from earlier in this tab, restored after a refresh or after
+  // visiting another page.
+  const [restored] = useState(loadPlannerSession);
   const [prompt, setPrompt] = useState("");
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<PlannerMessage[]>([
-    {
-      id: 1,
-      role: "assistant",
-      text: OPENING_MESSAGE,
-    },
-  ]);
-  const [uiAction, setUiAction] = useState<AiUiAction | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(
+    restored?.conversationId ?? null
+  );
+  const [messages, setMessages] = useState<PlannerMessage[]>(
+    restored?.messages ?? [
+      {
+        id: 1,
+        role: "assistant",
+        text: OPENING_MESSAGE,
+      },
+    ]
+  );
+  const [uiAction, setUiAction] = useState<AiUiAction | null>(
+    restored?.uiAction ?? null
+  );
   const [selectedOptions, setSelectedOptions] = useState<string[]>([]);
-  const [itinerary, setItinerary] = useState<ItineraryResponse | null>(null);
+  const [itinerary, setItinerary] = useState<ItineraryResponse | null>(
+    restored?.itinerary ?? null
+  );
+  // A restored itinerary was already seen, so the page does not jump to it.
+  const restoredItinerary = useRef(restored?.itinerary ?? null);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  // Set once this itinerary is saved, so the button cannot post it a second time.
+  const [savedItineraryId, setSavedItineraryId] = useState<string | null>(
+    restored?.savedItineraryId ?? null
+  );
   const itineraryResultRef = useRef<HTMLElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const chatHistoryRef = useRef<HTMLDivElement | null>(null);
@@ -264,11 +319,25 @@ function AIPlanner({
   );
 
   /*
+    Keep the conversation for this tab whenever it changes. Until the visitor
+    has said something there is nothing worth restoring, so the saved copy is
+    removed instead (this is also what "Start again" ends up doing).
+  */
+  useEffect(() => {
+    if (!hasUserSentMessage) {
+      clearPlannerSession();
+      return;
+    }
+
+    savePlannerSession({ conversationId, messages, uiAction, itinerary, savedItineraryId });
+  }, [conversationId, hasUserSentMessage, itinerary, messages, savedItineraryId, uiAction]);
+
+  /*
     Once the backend returns an itinerary, I move the viewport and keyboard
     focus to the result so it is not hidden below the conversation.
   */
   useEffect(() => {
-    if (!itinerary) {
+    if (!itinerary || itinerary === restoredItinerary.current) {
       return;
     }
 
@@ -293,7 +362,7 @@ function AIPlanner({
     the end of the newest bubble directly above the composer: a reply is read
     without scrolling, and a sent message is visibly sent.
 
-    This runs on isSending too, so the "Planning your next step..." bubble is
+    This runs on isSending too, so the "I am thinking..." bubble is
     also brought into view rather than appearing below the fold of the scroller.
 
     Scrolling unconditionally is safe here because messages only ever arrive as
@@ -421,6 +490,7 @@ function AIPlanner({
           id: Date.now() + 1,
           role: "assistant",
           text: response.message,
+          showPlaces: !response.itinerary,
         },
       ]);
       setUiAction(response.ui_action);
@@ -428,6 +498,8 @@ function AIPlanner({
 
       if (response.itinerary) {
         setItinerary(response.itinerary);
+        // A newly generated itinerary has not been saved yet.
+        setSavedItineraryId(null);
         setSuccessMessage(
           "Your itinerary is ready. Review it here, then open it in My Itinerary."
         );
@@ -498,12 +570,13 @@ function AIPlanner({
     setUiAction(null);
     setSelectedOptions([]);
     setItinerary(null);
+    setSavedItineraryId(null);
     setErrorMessage("");
     setSuccessMessage("");
   }
 
   async function saveItinerary() {
-    if (!itinerary || requireLogin()) {
+    if (!itinerary || savedItineraryId || isSaving || requireLogin()) {
       return;
     }
 
@@ -517,6 +590,7 @@ function AIPlanner({
         body: JSON.stringify(itinerary),
       });
 
+      setSavedItineraryId(saved.itinerary_id);
       setSuccessMessage(`Itinerary "${saved.trip_name}" was saved.`);
     } catch (error) {
       if (isAuthenticationError(error)) {
@@ -593,6 +667,11 @@ function AIPlanner({
                     {message.role === "assistant" ? "Offpeak" : "You"}
                   </strong>
                   <p>{message.text}</p>
+                  {message.showPlaces && (
+                    <PlannerRecommendations
+                      pois={findMentionedPois(message.text, pois)}
+                    />
+                  )}
                 </article>
               ))}
 
@@ -601,7 +680,7 @@ function AIPlanner({
                   <strong>Offpeak</strong>
                   <p>
                     <span className="ai-typing-dots" aria-hidden="true"><i /><i /><i /></span>
-                    Planning your next step…
+                    I am thinking…
                   </p>
                 </article>
               )}
@@ -639,23 +718,37 @@ function AIPlanner({
             {!hasUserSentMessage && (
               <div className="ai-planner-inspiration">
                 <p>Not sure where to start? Try a little inspiration.</p>
-                <div className="ai-planner-suggestions" aria-label="Prompt suggestions">
-                  {PROMPT_SUGGESTIONS.map((suggestion) => (
-                    <button
-                      key={suggestion.title}
-                      type="button"
-                      onClick={() => {
-                        setPrompt(suggestion.prompt);
-                        setErrorMessage("");
-                        textareaRef.current?.focus();
-                      }}
-                      disabled={isSending}
+                <div className="ai-planner-suggestion-groups">
+                  {PROMPT_SUGGESTION_GROUPS.map((group) => (
+                    <section
+                      key={group.kind}
+                      className={`ai-suggestion-group ${group.kind}`}
+                      aria-labelledby={`ai-suggestions-${group.kind}`}
                     >
-                      <span className="ai-suggestion-icon"><PlannerIcon name={suggestion.icon} /></span>
-                      <strong>{suggestion.title}</strong>
-                      <span>{suggestion.detail}</span>
-                      <span className="ai-suggestion-arrow" aria-hidden="true">↗</span>
-                    </button>
+                      <h3 id={`ai-suggestions-${group.kind}`}>
+                        {group.title}
+                        <span>{group.hint}</span>
+                      </h3>
+                      <div className="ai-planner-suggestions">
+                        {group.suggestions.map((suggestion) => (
+                          <button
+                            key={suggestion.title}
+                            type="button"
+                            onClick={() => {
+                              setPrompt(suggestion.prompt);
+                              setErrorMessage("");
+                              textareaRef.current?.focus();
+                            }}
+                            disabled={isSending}
+                          >
+                            <span className="ai-suggestion-icon"><PlannerIcon name={suggestion.icon} /></span>
+                            <strong>{suggestion.title}</strong>
+                            <span>{suggestion.detail}</span>
+                            <span className="ai-suggestion-arrow" aria-hidden="true">↗</span>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
                   ))}
                 </div>
               </div>
@@ -756,9 +849,9 @@ function AIPlanner({
                 type="button"
                 className="secondary-button"
                 onClick={() => void saveItinerary()}
-                disabled={isSaving || itinerary.stops.length === 0}
+                disabled={isSaving || Boolean(savedItineraryId) || itinerary.stops.length === 0}
               >
-                {isSaving ? "Saving..." : "Save itinerary"}
+                {isSaving ? "Saving..." : savedItineraryId ? "Saved ✓" : "Save itinerary"}
               </button>
             </div>
           </header>
@@ -788,41 +881,65 @@ function AIPlanner({
                       stop.why_this_time?.trim() ||
                       poi?.why_this_time?.trim();
 
+                    const photo = stop.hero_image_url || poi?.hero_image_url;
+
                     return (
                       <article
                         key={`${stop.slug}-${stop.position}`}
                         className="ai-itinerary-stop"
                       >
-                        <div className="ai-itinerary-stop-heading">
-                          <div>
-                            <span>
+                        {/* Cover: a photo of the place with when and how busy on top. */}
+                        <div className="ai-itinerary-stop-cover">
+                          {photo && (
+                            <img
+                              className="ai-itinerary-stop-photo"
+                              src={photo}
+                              alt=""
+                              loading="lazy"
+                              onError={(event) => {
+                                event.currentTarget.hidden = true;
+                              }}
+                            />
+                          )}
+                          <div className="ai-itinerary-stop-meta">
+                            <span className="ai-itinerary-stop-time">
                               {formatTime(stop.slot_start)}–
                               {formatTime(stop.slot_end)}
                             </span>
-                            <h4>{stop.poi_name}</h4>
-                            <p>
-                              {stop.neighborhood}, {stop.borough}
-                            </p>
+                            <span
+                              className={`ai-itinerary-stop-crowd ${getCrowdClass(stop.crowd_level)}`}
+                            >
+                              <i aria-hidden="true" />
+                              {stop.crowd_level} crowds
+                            </span>
                           </div>
-                          <strong>{stop.crowd_level} crowds</strong>
+                          <h4>{stop.poi_name}</h4>
+                          <p className="ai-itinerary-stop-place">
+                            {stop.neighborhood}, {stop.borough}
+                          </p>
                         </div>
 
-                        <p>
-                          <strong>Why this time:</strong>{" "}
-                          {whyThisTime ||
-                            "A detailed recommendation explanation is not available for this stop."}
-                        </p>
-
-                        {stop.busyness_for_day?.length > 0 ? (
-                          <BusynessChart
-                            hours={stop.busyness_for_day}
-                            poiName={stop.poi_name}
-                          />
-                        ) : (
-                          <p className="fallback-message">
-                            Hourly crowd data is not available for this stop.
+                        {/* Below the cover: the reason on the left, the forecast on the right. */}
+                        <div className="ai-itinerary-stop-body">
+                          <p className="ai-itinerary-stop-why">
+                            <strong>Why this time</strong>
+                            {whyThisTime ||
+                              "A detailed recommendation explanation is not available for this stop."}
                           </p>
-                        )}
+
+                          <div className="ai-itinerary-stop-forecast">
+                            {stop.busyness_for_day?.length > 0 ? (
+                              <BusynessChart
+                                hours={stop.busyness_for_day}
+                                poiName={stop.poi_name}
+                              />
+                            ) : (
+                              <p className="fallback-message">
+                                Hourly crowd data is not available for this stop.
+                              </p>
+                            )}
+                          </div>
+                        </div>
                       </article>
                     );
                   })}

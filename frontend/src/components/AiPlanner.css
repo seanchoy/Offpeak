@@ -177,31 +177,58 @@
 
 .ai-planner-inspiration { margin: 4px 0 14px; }
 .ai-planner-inspiration > p { margin: 0 0 12px; color: var(--text-muted); font-size: 11px; }
+/* "Find places" and "Plan a trip" are one row each, with their own label and
+   accent: navy for browsing places, brick for building an itinerary. */
+.ai-planner-suggestion-groups { display: grid; gap: 16px; }
+.ai-suggestion-group { --suggestion-accent: var(--color-brick); min-width: 0; }
+.ai-suggestion-group.explore { --suggestion-accent: var(--color-navy); }
+.ai-planner-page .ai-suggestion-group h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 9px;
+  color: var(--suggestion-accent);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.ai-planner-page .ai-suggestion-group h3::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  align-self: center;
+  border-radius: 50%;
+  background: currentColor;
+}
+.ai-planner-page .ai-suggestion-group h3 span { color: var(--text-muted); font-size: 10px; font-weight: 500; letter-spacing: 0; text-transform: none; }
 .ai-planner-page .ai-planner-suggestions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   margin: 0;
 }
+/* Compact rows: icon on the left, title over detail, arrow on the right. */
 .ai-planner-page .ai-planner-suggestions button {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 2px 12px;
   max-width: none;
   height: 100%;
-  padding: 16px;
+  padding: 12px 14px;
   border-color: #e7e6e0;
   border-radius: 12px;
   background: #fff;
   font-weight: 500;
+  text-align: left;
 }
-.ai-suggestion-icon { display: block; margin-bottom: 5px; color: var(--color-brick); }
+.ai-suggestion-icon { display: block; grid-row: 1 / 3; color: var(--suggestion-accent, var(--color-brick)); }
 .ai-suggestion-icon svg { display: block; width: 23px; height: 23px; }
-.ai-planner-suggestions strong { font-size: 12px; font-weight: 800; }
-.ai-planner-suggestions button > span:not([class]) { color: var(--text-muted); font-size: 10px; line-height: 1.6; }
-.ai-suggestion-arrow { position: absolute; top: 14px; right: 16px; color: #7b8587; font-size: 17px; }
+.ai-planner-suggestions strong { grid-column: 2; font-size: 12px; font-weight: 800; }
+.ai-planner-suggestions button > span:not([class]) { grid-column: 2; color: var(--text-muted); font-size: 10px; line-height: 1.6; }
+.ai-suggestion-arrow { grid-column: 3; grid-row: 1 / 3; color: #7b8587; font-size: 17px; }
 .ai-planner-page .ai-planner-suggestions button:hover:not(:disabled) {
   border-color: #c2b79f;
   background: #faf8f3;
@@ -254,6 +281,161 @@
 .ai-typing-dots i:nth-child(3) { animation-delay: 0.3s; }
 @keyframes planner-dot { 0%, 70%, 100% { opacity: 0.35; } 35% { opacity: 1; } }
 
+/* Cards for the attractions a reply names. The reply bubble widens to give
+   the row room; the row itself scrolls sideways when there are many. */
+.ai-planner-page .ai-chat-message:has(.ai-recommendations) { max-width: min(100%, 760px); }
+.ai-recommendations {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(176px, 204px);
+  gap: 12px;
+  margin: 14px -4px 0;
+  padding: 2px 4px 8px;
+  list-style: none;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+  scrollbar-color: #c8ced2 transparent;
+}
+.ai-recommendations li { display: flex; scroll-snap-align: start; }
+.ai-recommendation-card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  background: var(--bg-white);
+  color: inherit;
+  text-decoration: none;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+.ai-recommendation-card:hover { transform: translateY(-2px); border-color: var(--border-warm); box-shadow: var(--shadow-sm); }
+.ai-recommendation-card:focus-visible { outline: 2px solid var(--color-brick); outline-offset: 2px; }
+.ai-recommendation-card img { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; background: var(--bg-muted); }
+.ai-recommendation-body { display: flex; flex: 1; flex-direction: column; gap: 4px; padding: 11px 13px 13px; }
+.ai-recommendation-meta { color: var(--text-muted); font-size: 9.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; }
+.ai-planner-page .ai-recommendation-card strong { display: block; margin: 0; color: var(--color-navy); font-size: 13px; letter-spacing: 0; line-height: 1.35; text-transform: none; }
+.ai-recommendation-summary {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.ai-recommendation-link { margin-top: auto; padding-top: 6px; color: var(--color-brick); font-size: 11px; font-weight: 700; }
+
+/* Itinerary stop card. A photo cover carries the essentials (when, how busy,
+   where); below it, the reason for the time slot sits beside a compact crowd
+   forecast. Without a photo the cover falls back to a navy gradient. */
+.ai-planner-page .ai-itinerary-stop {
+  margin-top: 14px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  border-radius: 16px;
+  background: var(--bg-card);
+  box-shadow: 0 1px 2px rgba(18, 39, 51, 0.05);
+}
+.ai-itinerary-stop-cover {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-height: 168px;
+  padding: 16px 20px 18px;
+  background: linear-gradient(135deg, #1f3a4a, #122733);
+  color: #fff;
+}
+.ai-itinerary-stop-photo {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+/* Darken towards the bottom so the white name always reads. */
+.ai-itinerary-stop-cover::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(180deg, rgba(12, 26, 35, 0.12) 0%, rgba(12, 26, 35, 0.28) 45%, rgba(12, 26, 35, 0.78) 100%);
+}
+.ai-itinerary-stop-meta {
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  right: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ai-itinerary-stop-time,
+.ai-itinerary-stop-crowd {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  font-size: 11px;
+  font-weight: 800;
+  box-shadow: 0 1px 3px rgba(12, 26, 35, 0.16);
+}
+.ai-itinerary-stop-time { color: var(--color-brick); }
+.ai-itinerary-stop-crowd { color: var(--color-navy); }
+.ai-itinerary-stop-crowd i { width: 7px; height: 7px; border-radius: 50%; background: var(--crowd-pending); }
+.ai-itinerary-stop-crowd.quiet i { background: var(--crowd-quiet); }
+.ai-itinerary-stop-crowd.moderate i { background: var(--crowd-moderate); }
+.ai-itinerary-stop-crowd.busy i { background: var(--crowd-busy); }
+.ai-planner-page .ai-itinerary-stop-cover h4 {
+  margin: 0;
+  color: #fff;
+  font-size: 22px;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.25);
+}
+.ai-planner-page .ai-itinerary-stop-place { margin: 4px 0 0; color: rgba(255, 255, 255, 0.86); font-size: 12px; }
+
+.ai-itinerary-stop-body {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  align-items: center;
+  gap: 22px;
+  padding: 18px 20px 20px;
+}
+.ai-planner-page .ai-itinerary-stop-why { margin: 0; color: var(--text-main); font-size: 12.5px; line-height: 1.7; }
+.ai-itinerary-stop-why strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--color-brick);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* A smaller version of the shared crowd chart for the side panel. */
+.ai-itinerary-stop-forecast { min-width: 0; }
+.ai-itinerary-stop-forecast .busyness-forecast {
+  --busyness-plot-height: 84px;
+  margin: 0;
+  padding: 14px 16px 10px;
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(18, 39, 51, 0.06);
+}
+.ai-itinerary-stop-forecast .busyness-chart-title { font-size: 9.5px; }
+.ai-itinerary-stop-forecast .busyness-chart-summary { font-size: 12.5px; line-height: 18px; }
+.ai-itinerary-stop-forecast .busyness-chart-legend { gap: 4px 10px; }
+.ai-itinerary-stop-forecast .busyness-chart-legend li { font-size: 10px; }
+.ai-itinerary-stop-forecast .mini-busyness-chart { margin-top: 10px; }
+.ai-itinerary-stop-forecast .fallback-message { margin: 0; }
+
 @media (max-width: 920px) {
   /* The shared navigation scrolls away at this breakpoint. */
   .ai-planner-page { --planner-chat-top: 20px; }
@@ -269,17 +451,20 @@
   .ai-planner-page .ai-chat-message { max-width: 94%; padding: 14px; }
   .ai-composer-area { padding: 12px 18px 18px; }
   .ai-planner-page .ai-composer textarea { min-height: 66px; font-size: 16px; }
+  .ai-planner-page .ai-chat-message:has(.ai-recommendations) { max-width: 100%; }
+  .ai-itinerary-stop-body { grid-template-columns: 1fr; gap: 14px; padding: 16px; }
+  .ai-itinerary-stop-cover { min-height: 150px; padding: 14px 16px 16px; }
 }
 
 @media (max-width: 540px) {
+  /* On a phone the side chart is narrow: label every six hours, not every three. */
+  .ai-itinerary-stop-forecast .busyness-axis span { font-size: 10px; }
+  .ai-itinerary-stop-forecast .busyness-axis span:nth-child(6n + 4),
+  .ai-itinerary-stop-forecast .busyness-axis span:last-child { visibility: hidden; }
   .ai-planner-hero .section-eyebrow { font-size: 9px; letter-spacing: 0.07em; }
   .ai-planner-intro { font-size: 13px; }
   .ai-planner-page .ai-planner-suggestions { grid-template-columns: 1fr; gap: 8px; }
-  .ai-planner-page .ai-planner-suggestions button { display: grid; grid-template-columns: 30px 1fr 16px; gap: 2px 10px; padding: 12px; }
-  .ai-suggestion-icon { grid-row: 1 / 3; align-self: center; margin: 0; }
-  .ai-planner-suggestions strong { grid-column: 2; }
-  .ai-planner-suggestions button > span:not([class]) { grid-column: 2; }
-  .ai-suggestion-arrow { position: static; grid-column: 3; grid-row: 1 / 3; align-self: center; }
+  .ai-planner-page .ai-planner-suggestions button { gap: 2px 10px; padding: 12px; }
   .ai-composer-meta { font-size: 9px; }
   .ai-composer-meta > span:first-child > span { padding: 0 2px; }
   .ai-planner-page .ai-new-conversation { padding: 8px 10px; font-size: 10px; }
@@ -288,4 +473,5 @@
 @media (prefers-reduced-motion: reduce) {
   .ai-typing-dots i { animation: none; }
   .ai-planner-page .ai-planner-suggestions button:hover:not(:disabled) { transform: none; }
+  .ai-recommendation-card, .ai-recommendation-card:hover { transform: none; transition: none; }
 }
